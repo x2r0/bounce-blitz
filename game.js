@@ -57,7 +57,7 @@ import {
   sfxWaveClear, sfxBossIntro, sfxBossHit, sfxBossPhaseTransition,
   sfxBossDefeat, sfxGameOver, sfxShardCollect, sfxEvolutionUnlock,
   sfxUIClick, sfxMultiPop, sfxGravityBomb,
-  startMusic, stopMusic, setMusicIntensity, setBossMusic
+  startMusic, stopMusic, setMusicIntensity, setBossMusic, setMusicState
 } from './systems/audio.js';
 import platformSDK from './platform-sdk.js';
 import { setupCrazyGames } from './platform-crazygames.js';
@@ -613,7 +613,7 @@ events.on('waveCleared', () => {
 
 events.on('waveStarted', (data) => {
   // Increase music intensity with wave
-  setMusicIntensity(Math.min(1, data.wave / 25));
+  setMusicIntensity(Math.min(1, data.wave / 25), data.wave);
 });
 
 events.on('powerUpCollected', () => {
@@ -766,6 +766,7 @@ function transitionToPowerSelect() {
     const breakDur = G.isHardcore ? 1.0 : getWaveBreakDuration(G.wave);
     G.state = STATE.WAVE_BREAK;
     G.waveBreakTimer = breakDur;
+    setMusicState('wave_break');
     initWaveTransition(breakDur);
     return;
   }
@@ -775,6 +776,7 @@ function transitionToPowerSelect() {
     events.emit('powerOffered', { powerId: card.powerId });
   }
   G.state = STATE.POWER_SELECT;
+  setMusicState('power_select');
   G.cardOffering = offering;
   G.cardHover = -1;
   G.cardPickAnim = null;
@@ -848,6 +850,7 @@ function update(dt) {
         // Resume wave break
         const breakDur2 = G.isHardcore ? 1.0 : getWaveBreakDuration(G.wave);
         G.state = STATE.WAVE_BREAK;
+        setMusicState('wave_break');
         G.waveBreakTimer = breakDur2;
         initWaveTransition(breakDur2);
       }
@@ -1108,6 +1111,7 @@ function update(dt) {
       if (nextWave <= 30 || G.isEndlessRun) {
         // Brief pause then boss intro — too short for full transition
         G.state = STATE.WAVE_BREAK;
+        setMusicState('wave_break');
         G.waveBreakTimer = 0.3;
         initWaveTransition(0.3);
         // Power select will happen after boss defeat instead
@@ -1115,12 +1119,14 @@ function update(dt) {
         // No endless mode — brief pause then power select
         G.pendingPowerSelect = true;
         G.state = STATE.WAVE_BREAK;
+        setMusicState('wave_break');
         G.waveBreakTimer = 1.5;
       }
     } else {
       // Brief pause before showing powerup cards
       G.pendingPowerSelect = true;
       G.state = STATE.WAVE_BREAK;
+      setMusicState('wave_break');
       G.waveBreakTimer = 1.5;
     }
   }

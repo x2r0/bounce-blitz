@@ -9,7 +9,7 @@ import { spawnCombatText } from './combat-text.js';
 import { events } from '../eventbus.js';
 import { spawnEnemy, killEnemy } from '../entities/enemy.js';
 import { getSpeedScale, getBossType, getBossScaling } from './wave.js';
-import { sfxBossIntro, sfxBossHit, sfxBossPhaseTransition, sfxBossDefeat, setBossMusic } from './audio.js';
+import { sfxBossIntro, sfxBossHit, sfxBossPhaseTransition, sfxBossDefeat, setBossMusic, setMusicState, notifyBossEvent } from './audio.js';
 import { spawnPowerGem } from './arena.js';
 import { spawnBossBoost } from './lootcrate.js';
 import { saveMeta } from './meta.js';
@@ -74,6 +74,7 @@ export function startBossIntro(wave) {
     skipTimer: 0,
   };
   G.state = STATE.BOSS_INTRO_CARD;
+  setMusicState('boss_intro');
   sfxBossIntro();
   events.emit('bossIntroStarted', { bossType });
 }
@@ -504,6 +505,7 @@ export function updateBoss(dt) {
       triggerShake(G, boss.bossType === 'void_warden' ? 10 : 8, boss.bossType === 'void_warden' ? 0.4 : 0.3);
       G.freezeTimer = 0.1; // hitstop on phase transition
       sfxBossPhaseTransition();
+      notifyBossEvent('phase_change', boss.phase);
       spawnParticles(boss.x, boss.y, boss.color, 12);
       // Reset phase-specific timers
       boss.attackTimer = 0; boss.spawnTimer2 = 0;
@@ -1001,6 +1003,7 @@ function updateVoidWardenGravityWells(boss, dt, player) {
     boss.teleportTimer2 -= dt;
     if (boss.teleportTimer2 <= 0) {
       boss.teleportTimer2 = 5.0;
+      notifyBossEvent('gravity_well');
       // Reposition all wells
       boss.gravityWells = [];
       for (let i = 0; i < 3; i++) {
