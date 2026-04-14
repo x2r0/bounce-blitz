@@ -1,10 +1,14 @@
 # Bounce Blitz
 
+**[Play Now](https://x2r0.github.io/bounce-blitz/)**
+
 A fast-paced roguelike arena game where you're a glowing orb bouncing off walls, dashing through enemies, and building wild power combos to survive escalating waves of chaos.
 
 ## How to Play
 
-Start the local development server, then open in any modern browser:
+The game is live at **https://x2r0.github.io/bounce-blitz/** — just open it in any modern browser.
+
+For local development, start the dev server:
 
 ```bash
 python3 serve.py        # serves on http://localhost:8080
