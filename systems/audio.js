@@ -556,16 +556,22 @@ function _stopScheduler() {
   if (_schedulerTimer) { clearInterval(_schedulerTimer); _schedulerTimer = null; }
 }
 
+// Title-state scheduler definitions
+const TITLE_LEAD_NOTES = [220, 330, 440, 330, 262, 330]; // A3→E4→A4→E4→C4→E4
+const _titleLeadDef = { notes: TITLE_LEAD_NOTES, subdiv: 0.5, legato: 0.7, type: 'sawtooth' };
+const _titleTexDef = { freq: 880, burstSec: 0.04, everyBeats: 4, type: 'triangle' };
+
 function _schedulerTick() {
   if (!audioCtx || !_musicPlaying || !_voices) return;
   const now = audioCtx.currentTime;
   const ahead = 0.1;
-  const arc = _isBossMusic ? null : MUSIC_ARCS[_currentArcIdx];
+  const isTitle = _gameState === 'title';
+  const arc = (_isBossMusic || isTitle) ? null : MUSIC_ARCS[_currentArcIdx];
   const boss = _isBossMusic ? BOSS_THEMES[_getBossIndex(_currentWave)] : null;
   const beat = _beatSec();
 
   // Lead arpeggio
-  const leadDef = _isBossMusic ? boss.lead : arc.lead;
+  const leadDef = isTitle ? _titleLeadDef : (_isBossMusic ? boss.lead : arc.lead);
   if (leadDef && leadDef.notes && leadDef.notes.length > 0) {
     const subdiv = leadDef.subdiv || 1;
     const noteDur = beat / Math.max(0.1, subdiv);
@@ -576,7 +582,7 @@ function _schedulerTick() {
   }
 
   // Texture bursts (skip if continuous or silent)
-  const texDef = _isBossMusic ? boss.texture : arc.texture;
+  const texDef = isTitle ? _titleTexDef : (_isBossMusic ? boss.texture : arc.texture);
   if (texDef && texDef.burstSec && texDef.everyBeats && _voices.texture) {
     const interval = beat * texDef.everyBeats;
     while (_nextTextureTime < now + ahead) {
@@ -585,8 +591,8 @@ function _schedulerTick() {
     }
   }
 
-  // Harmony swap (alternating freqs)
-  const harmDef = _isBossMusic ? boss.harmony : arc.harmony;
+  // Harmony swap (alternating freqs) — skip during title (no alternating harmony)
+  const harmDef = _isBossMusic ? boss.harmony : (arc ? arc.harmony : null);
   if (harmDef && harmDef.freqs && harmDef.swapBeats && _voices.harmony) {
     const interval = beat * harmDef.swapBeats;
     while (_nextHarmonySwapTime < now + ahead) {
@@ -653,6 +659,7 @@ function _scheduleLeadNote(time, def, noteDur) {
 }
 
 function _getLeadTargetGain() {
+  if (_gameState === 'title') return 0.05; // Title arpeggio gain
   if (_isBossMusic) {
     const boss = BOSS_THEMES[_getBossIndex(_currentWave)];
     return boss.lead.gain;
@@ -683,6 +690,7 @@ function _scheduleTextureBurst(time, def) {
 }
 
 function _getTextureTargetGain() {
+  if (_gameState === 'title') return 0.03; // Title texture ping gain
   if (_isBossMusic) {
     const boss = BOSS_THEMES[_getBossIndex(_currentWave)];
     return boss.texture.gain;
@@ -922,31 +930,44 @@ function _applyBossParams(dur) {
   _savedLeadGain = boss.lead.gain;
 }
 
-// --- Title music (ambient) ---
+// --- Title music (enhanced ambient — captivating from moment 0) ---
 function _applyTitleParams() {
   if (!_voices) return;
-  _currentBpm = 60;
+  _currentBpm = 56;
   _gameState = 'title';
 
+  // Bass: warm A2 foundation
   _ramp(_voices.bass.osc.frequency, 110, 0);
   _voices.bass.osc.type = 'sine';
-  _ramp(_voices.bass.gain.gain, 0.08, 2.0);
+  _ramp(_voices.bass.gain.gain, 0.12, 1.5);
 
+  // Harmony: E3 fifth, slightly louder for fullness
   _ramp(_voices.harmony.osc.frequency, 165, 0);
   _voices.harmony.osc.type = 'triangle';
-  _ramp(_voices.harmony.gain.gain, 0.04, 2.0);
+  _ramp(_voices.harmony.gain.gain, 0.06, 2.0);
 
-  // Lead + texture off for title
-  _ramp(_voices.lead.gain.gain, 0, 0);
-  _ramp(_voices.texture.gain.gain, 0, 0);
+  // Lead: slow dreamy arpeggio, filtered sawtooth
+  _voices.lead.osc.type = 'sawtooth';
+  _ramp(_voices.lead.gain.gain, 0.05, 3.0);
+  _ramp(_leadFilter.frequency, 1200, 0);
 
-  _ramp(_globalFilter.frequency, 800, 0);
-  _ramp(_globalFilter.Q, 1, 0);
-  _ramp(_lfo.frequency, 0.1, 0);
-  _ramp(_lfoGain.gain, 0.02, 0);
+  // Texture: gentle high pings every 4 beats
+  _voices.texture.osc.type = 'triangle';
+  _ramp(_voices.texture.osc.frequency, 880, 0);
+  // Bursts handled by scheduler; start silent
+  _voices.texture.gain.gain.setValueAtTime(0, audioCtx.currentTime);
 
-  // Harmony 8-second fade cycle via LFO already applied by main LFO
-  _ramp(_outputGain.gain, 1.0, 2.0);
+  // Brighter filter for immediate presence
+  _ramp(_globalFilter.frequency, 1400, 0);
+  _ramp(_globalFilter.Q, 1.5, 0);
+  _ramp(_lfo.frequency, 0.15, 0);
+  _ramp(_lfoGain.gain, 0.03, 0);
+
+  _ramp(_outputGain.gain, 1.0, 1.5);
+
+  // Start scheduler so lead arpeggio + texture pings play on title
+  _leadIdx = 0;
+  _startScheduler();
 }
 
 // --- Game over music sequence ---
@@ -1009,10 +1030,10 @@ export function startMusic() {
   // Start with title ambient
   _applyTitleParams();
 
-  // Fade in from silence
+  // Quick fade in — browser game needs to capture immediately
   const ctx = audioCtx;
   _outputGain.gain.setValueAtTime(0, ctx.currentTime);
-  _outputGain.gain.linearRampToValueAtTime(1.0, ctx.currentTime + 2.0);
+  _outputGain.gain.linearRampToValueAtTime(1.0, ctx.currentTime + 0.8);
 }
 
 export function stopMusic() {
