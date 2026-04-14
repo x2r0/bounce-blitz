@@ -1,0 +1,11 @@
+{
+  "name": "bounce-blitz",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "start": "python3 serve.py 8080 --kill",
+    "stop": "if [ -f .server.pid ]; then kill $(cat .server.pid) 2>/dev/null && rm -f .server.pid && echo 'Server stopped (via PID file)'; fi; lsof -ti :8080 | xargs kill 2>/dev/null && echo 'Killed process on port 8080' || true",
+    "restart": "npm run stop && npm start",
+    "clean": "echo 'Killing all python http.server processes...'; ps aux | grep 'python3.*http.server\\|python3.*serve.py' | grep -v grep | awk '{print $2}' | xargs kill 2>/dev/null; rm -f .server.pid; echo 'Done'"
+  }
+}
