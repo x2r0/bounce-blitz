@@ -59,6 +59,7 @@ import {
   sfxUIClick, sfxMultiPop, sfxGravityBomb,
   startMusic, stopMusic, setMusicIntensity, setBossMusic
 } from './systems/audio.js';
+import platformSDK from './platform-sdk.js';
 
 // --- Grid crossfade infrastructure (offscreen canvas for arc transitions) ---
 const gridCanvasOld = document.createElement('canvas');
@@ -521,6 +522,9 @@ function initWaveTransition(breakDuration) {
   } else {
     G.loreSnippet = null;
   }
+
+  // Platform SDK: request ad break during wave transition
+  platformSDK.adBreak();
 }
 
 function getWaveTransitionScrollDist(wave) {
@@ -611,6 +615,31 @@ events.on('waveStarted', (data) => {
 
 events.on('powerUpCollected', () => {
   sfxShardCollect();
+});
+
+// --- Platform SDK analytics hooks ---
+events.on('waveStarted', (data) => {
+  platformSDK.gameplayStart();
+  platformSDK.event('waveReached', { wave: data.wave });
+});
+
+events.on('enemyKilled', (data) => {
+  platformSDK.event('score', { score: G.score, points: data.points, combo: data.combo });
+});
+
+events.on('gameOver', (data) => {
+  platformSDK.gameplayStop();
+  platformSDK.event('death', { score: data.score, wave: data.wave });
+});
+
+events.on('waveCleared', (data) => {
+  platformSDK.gameplayStop();
+  platformSDK.event('waveCleared', { wave: data.wave, bonus: data.bonus });
+});
+
+events.on('victory', () => {
+  platformSDK.gameplayStop();
+  platformSDK.event('victory', { score: G.score, wave: G.wave });
 });
 
 // --- Collision Detection ---
@@ -2465,7 +2494,11 @@ function gameLoop(now) {
 }
 
 // --- Initialize ---
+platformSDK.init();
+platformSDK.loadingProgress(0.5);
 setupInput();
 setupGlossaryTracking();
+platformSDK.loadingProgress(1);
+platformSDK.loadingDone();
 G.state = STATE.TITLE;
 requestAnimationFrame(gameLoop);
