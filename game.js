@@ -62,6 +62,7 @@ import {
 import platformSDK from './platform-sdk.js';
 import { setupCrazyGames } from './platform-crazygames.js';
 import { setupPoki } from './platform-poki.js';
+import { setupGameDistribution } from './platform-gamedistribution.js';
 
 // --- Grid crossfade infrastructure (offscreen canvas for arc transitions) ---
 const gridCanvasOld = document.createElement('canvas');
@@ -2498,6 +2499,7 @@ function gameLoop(now) {
 // --- Initialize ---
 setupCrazyGames();          // detect & activate CrazyGames adapter (no-op elsewhere)
 setupPoki();                // detect & activate Poki adapter (no-op elsewhere)
+setupGameDistribution();    // detect & activate GameDistribution adapter (no-op elsewhere)
 platformSDK.init();
 platformSDK.loadingProgress(0.5);
 setupInput();
