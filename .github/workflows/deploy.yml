@@ -22,9 +22,33 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Build (minify JS, copy assets)
+        run: |
+          npm install --no-save esbuild
+
+          # Copy non-JS assets unchanged
+          mkdir -p dist/assets
+          cp index.html dist/
+          cp -r assets/* dist/assets/
+
+          # Minify every JS file, preserving directory structure
+          find . -name '*.js' \
+            -not -path './node_modules/*' \
+            -not -path './dist/*' \
+            -not -path './publish/*' \
+            | while read -r f; do
+              mkdir -p "dist/$(dirname "$f")"
+              npx esbuild "$f" --minify --outfile="dist/${f}"
+            done
+
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
-          path: .
+          path: dist
       - id: deployment
         uses: actions/deploy-pages@v4
