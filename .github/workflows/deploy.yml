@@ -3,10 +3,11 @@ name: Deploy to GitHub Pages
 on:
   push:
     branches: [main]
+    tags: ['v*']
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
   pages: write
   id-token: write
 
@@ -46,9 +47,24 @@ jobs:
               npx esbuild "$f" --minify --outfile="dist/${f}"
             done
 
+      - name: Create distribution zip
+        run: cd dist && zip -r ../bounceblitz.zip .
+
+      - name: Upload distribution zip artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: bounceblitz
+          path: bounceblitz.zip
+
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
           path: dist
       - id: deployment
         uses: actions/deploy-pages@v4
+
+      - name: Attach zip to GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: bounceblitz.zip
