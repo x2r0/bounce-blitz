@@ -60,6 +60,7 @@ import {
   startMusic, stopMusic, setMusicIntensity, setBossMusic
 } from './systems/audio.js';
 import platformSDK from './platform-sdk.js';
+import { setupCrazyGames } from './platform-crazygames.js';
 
 // --- Grid crossfade infrastructure (offscreen canvas for arc transitions) ---
 const gridCanvasOld = document.createElement('canvas');
@@ -2494,6 +2495,7 @@ function gameLoop(now) {
 }
 
 // --- Initialize ---
+setupCrazyGames();          // detect & activate CrazyGames adapter (no-op elsewhere)
 platformSDK.init();
 platformSDK.loadingProgress(0.5);
 setupInput();
