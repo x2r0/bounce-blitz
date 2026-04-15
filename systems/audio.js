@@ -104,6 +104,7 @@ export function sfxDash() {
   gain.connect(sfxGain);
   osc.start(ctx.currentTime);
   osc.stop(ctx.currentTime + 0.1);
+  _reactToAction('dash');
 }
 
 // Wall bounce
@@ -123,6 +124,7 @@ export function sfxEnemyKill(enemyType) {
   playTone(freq, 'sine', 0.08, 0.18);
   playTone(freq * 1.5, 'sine', 0.05, 0.08);
   playNoise(0.04, 0.06, 4000, 'highpass');
+  _reactToAction('kill');
 }
 
 // Combo kills: escalating pitch
@@ -130,6 +132,7 @@ export function sfxComboKill(comboCount) {
   const baseFreq = 400 + Math.min(comboCount, 20) * 40;
   playTone(baseFreq, 'sine', 0.1, 0.2);
   playTone(baseFreq * 1.25, 'triangle', 0.06, 0.1);
+  _reactToAction('combo', comboCount);
 }
 
 // Power-up select: card pick confirmation
@@ -161,6 +164,7 @@ export function sfxDamageTaken() {
   playTone(80, 'sine', 0.2, 0.3);
   playTone(60, 'triangle', 0.15, 0.2);
   playNoise(0.1, 0.12, 400, 'lowpass');
+  _reactToAction('damage');
 }
 
 // Wave clear: triumphant chime
@@ -169,6 +173,7 @@ export function sfxWaveClear() {
   setTimeout(() => playTone(659, 'sine', 0.15, 0.12), 80);
   setTimeout(() => playTone(784, 'sine', 0.15, 0.12), 160);
   setTimeout(() => playTone(1047, 'sine', 0.3, 0.15), 240);
+  _reactToAction('wave_clear');
 }
 
 // Boss intro: dramatic reveal
@@ -187,6 +192,7 @@ export function sfxBossHit() {
   playTone(120, 'sine', 0.15, 0.25);
   playTone(80, 'triangle', 0.1, 0.15);
   playNoise(0.08, 0.12, 2000, 'lowpass');
+  _reactToAction('boss_hit');
 }
 
 // Boss phase transition: dramatic shift
@@ -407,6 +413,100 @@ let _savedFilterHz = 0;
 let _savedLeadGain = 0;
 let _savedBpm = 0;
 
+// --- Gameplay-reactive music state ---
+let _actionHeat = 0;        // 0-1 cumulative action intensity, decays over time
+let _heatDecayTimer = null;
+let _lastFilterBoost = 0;
+
+function _startHeatDecay() {
+  if (_heatDecayTimer) return;
+  _heatDecayTimer = setInterval(() => {
+    _actionHeat = Math.max(0, _actionHeat - 0.015);
+    if (_actionHeat <= 0 && _heatDecayTimer) {
+      clearInterval(_heatDecayTimer);
+      _heatDecayTimer = null;
+    }
+    // Apply heat to music parameters
+    if (_musicPlaying && _voices && _globalFilter && !_isBossMusic && _gameState === 'playing') {
+      const heatFilterBoost = _actionHeat * 800;
+      const heatLeadGain = _actionHeat * 0.04;
+      if (Math.abs(heatFilterBoost - _lastFilterBoost) > 20) {
+        _ramp(_globalFilter.frequency, (_savedFilterHz || 800) + heatFilterBoost, 0.08);
+        _lastFilterBoost = heatFilterBoost;
+      }
+      // Texture gains up with heat
+      if (_voices.texture) {
+        _voices.texture.gain.gain.value = Math.min(0.08, _actionHeat * 0.06);
+      }
+      // Subtle lead gain boost
+      if (_voices.lead) {
+        const baseLead = _getLeadTargetGain();
+        _voices.lead.gain.gain.value = baseLead + heatLeadGain;
+      }
+    }
+  }, 50);
+}
+
+function _reactToAction(action, intensity) {
+  if (!_musicPlaying || !_voices || !audioCtx) return;
+  const now = audioCtx.currentTime;
+
+  if (action === 'kill') {
+    _actionHeat = Math.min(1, _actionHeat + 0.06);
+    _startHeatDecay();
+    // Brief filter spike
+    if (_globalFilter) {
+      const cur = _globalFilter.frequency.value;
+      _globalFilter.frequency.setValueAtTime(Math.min(5000, cur + 400), now);
+      _globalFilter.frequency.linearRampToValueAtTime(cur, now + 0.15);
+    }
+  } else if (action === 'combo') {
+    const count = intensity || 2;
+    _actionHeat = Math.min(1, _actionHeat + 0.04 * Math.min(count, 10));
+    _startHeatDecay();
+    // Proportional filter sweep
+    if (_globalFilter) {
+      const boost = Math.min(1500, count * 150);
+      const cur = _globalFilter.frequency.value;
+      _globalFilter.frequency.setValueAtTime(Math.min(5000, cur + boost), now);
+      _globalFilter.frequency.linearRampToValueAtTime(cur, now + 0.3);
+    }
+  } else if (action === 'dash') {
+    _actionHeat = Math.min(1, _actionHeat + 0.02);
+    _startHeatDecay();
+  } else if (action === 'damage') {
+    // Filter dip — music pulls back on hit
+    if (_globalFilter) {
+      const cur = _globalFilter.frequency.value;
+      _globalFilter.frequency.setValueAtTime(Math.max(200, cur * 0.6), now);
+      _globalFilter.frequency.linearRampToValueAtTime(cur, now + 0.4);
+    }
+    if (_outputGain) {
+      _outputGain.gain.setValueAtTime(0.7, now);
+      _outputGain.gain.linearRampToValueAtTime(1.0, now + 0.4);
+    }
+  } else if (action === 'wave_clear') {
+    // Triumphant filter open + gain swell
+    if (_globalFilter) {
+      _globalFilter.frequency.setValueAtTime(4000, now);
+      _globalFilter.frequency.linearRampToValueAtTime(_savedFilterHz || 1200, now + 1.0);
+    }
+    if (_outputGain) {
+      _outputGain.gain.setValueAtTime(1.2, now);
+      _outputGain.gain.linearRampToValueAtTime(1.0, now + 0.5);
+    }
+    _actionHeat = 0;
+  } else if (action === 'boss_hit') {
+    _actionHeat = Math.min(1, _actionHeat + 0.08);
+    _startHeatDecay();
+    if (_globalFilter) {
+      const cur = _globalFilter.frequency.value;
+      _globalFilter.frequency.setValueAtTime(Math.min(5000, cur + 600), now);
+      _globalFilter.frequency.linearRampToValueAtTime(cur, now + 0.2);
+    }
+  }
+}
+
 // --- Helpers ---
 function _lerp(a, b, t) { return a + (b - a) * Math.min(1, Math.max(0, t)); }
 
@@ -519,6 +619,9 @@ function _createVoices() {
 
 function _destroyVoices() {
   _stopScheduler();
+  if (_heatDecayTimer) { clearInterval(_heatDecayTimer); _heatDecayTimer = null; }
+  _actionHeat = 0;
+  _lastFilterBoost = 0;
   if (_voices) {
     _stopOsc(_voices.bass);
     _stopOsc(_voices.harmony);
@@ -641,16 +744,35 @@ function _scheduleLeadNote(time, def, noteDur) {
     return;
   }
 
-  const freq = notes[_leadIdx % notes.length];
-  _voices.lead.osc.frequency.setValueAtTime(freq, time);
+  let freq = notes[_leadIdx % notes.length];
+
+  // --- Arpeggio variation (reduces repetitiveness) ---
+  // Occasional octave shift (12% chance up, 5% chance down)
+  const rnd = Math.random();
+  if (rnd < 0.12 && freq < 2000) freq *= 2;
+  else if (rnd < 0.17 && freq > 100) freq *= 0.5;
+  // Occasional passing tone — shift by a musical third (8% chance)
+  else if (rnd < 0.25) freq *= (Math.random() < 0.5 ? 1.26 : 0.84); // ~major 3rd up/down
+  // Action heat adds energy: occasional grace note doubling
+  if (_actionHeat > 0.4 && Math.random() < _actionHeat * 0.3 && _voices.lead.osc) {
+    // Quick grace note at current freq before the main note
+    const graceFreq = freq * (Math.random() < 0.5 ? 1.125 : 0.89); // major 2nd
+    _voices.lead.osc.frequency.setValueAtTime(graceFreq, time);
+    _voices.lead.osc.frequency.setValueAtTime(freq, time + noteDur * 0.15);
+  } else {
+    _voices.lead.osc.frequency.setValueAtTime(freq, time);
+  }
 
   // Note envelope: attack → sustain → release
   const legato = def.legato || 1.0;
   const onDur = noteDur * legato;
   const targetGain = _leadSilenced ? 0 : _getLeadTargetGain();
-  gain.setValueAtTime(targetGain, time);
+  // Heat-influenced dynamics: louder notes during intense action
+  const heatGainBoost = _actionHeat * 0.03;
+  const finalGain = Math.min(0.15, targetGain + heatGainBoost);
+  gain.setValueAtTime(finalGain, time);
   if (legato < 1.0) {
-    gain.setValueAtTime(targetGain, time + Math.max(0.005, onDur - 0.005));
+    gain.setValueAtTime(finalGain, time + Math.max(0.005, onDur - 0.005));
     gain.linearRampToValueAtTime(0, time + onDur);
   }
 
