@@ -150,7 +150,7 @@ export function startNextWave() {
 export function updateBurstSpawning(dt, spawnFn) {
   if (!G.spawnBursts || G.spawnBursts.length === 0) return true;
 
-  const aliveCount = G.enemies.filter(e => e.alive).length;
+  let aliveCount = G.enemies.filter(e => e.alive).length;
 
   // Process spawn queue first (enemies waiting due to cap)
   if (G.spawnQueue && G.spawnQueue.length > 0) {
@@ -159,6 +159,7 @@ export function updateBurstSpawning(dt, spawnFn) {
       const type = G.spawnQueue.shift();
       spawnFn(type);
       G.spawnQueueTimer = 0;
+      aliveCount++;
     }
   }
 
@@ -190,6 +191,7 @@ export function updateBurstSpawning(dt, spawnFn) {
       G.spawnQueue.push(type);
     } else {
       spawnFn(type);
+      aliveCount++;
     }
 
     burst.spawned++;

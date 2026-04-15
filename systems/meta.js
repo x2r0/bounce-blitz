@@ -134,11 +134,11 @@ export function getHardcoreWaveMilestoneBonus(wave) {
 }
 
 // --- End-of-Run Bonus Shard Calculation (physical drops are added separately) ---
-export function calculateRunBonusShards(waves, score, bestWave, prevBestWave, meta) {
+export function calculateRunBonusShards(waves, score, reachedWave, prevBestWave) {
   const waveShards = waves * 2;
   const scoreShards = Math.floor(score / 2500);
   let recordShards = 0;
-  if (waves > prevBestWave) recordShards = 10;
+  if (reachedWave > prevBestWave) recordShards = 10;
 
   let subtotal = waveShards + scoreShards + recordShards;
 

@@ -40,6 +40,7 @@ export function saveRunState(G) {
     shardsCollected: G.shardsCollected,
     isHardcore: G.isHardcore,
     isEndlessRun: G.isEndlessRun,
+    selectedLoadout: G.meta.selectedLoadout,
     previousOffering: G.previousOffering,
     pendingEvolution: G.pendingEvolution,
     player: {

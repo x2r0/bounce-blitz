@@ -55,7 +55,7 @@ import {
   resumeAudio, sfxDash, sfxBounce, sfxEnemyKill, sfxComboKill,
   sfxCardPick, sfxShieldBlock, sfxShieldBreak, sfxDamageTaken,
   sfxWaveClear, sfxBossIntro, sfxBossHit, sfxBossPhaseTransition,
-  sfxBossDefeat, sfxGameOver, sfxShardCollect, sfxEvolutionUnlock,
+  sfxBossDefeat, sfxGameOver, sfxShardCollect, sfxEvolutionUnlock, sfxBoostCollect,
   sfxUIClick, sfxMultiPop, sfxGravityBomb,
   startMusic, stopMusic, setMusicIntensity, setBossMusic, setMusicState,
   setPlayerActivity,
@@ -620,6 +620,10 @@ events.on('waveStarted', (data) => {
 
 events.on('powerUpCollected', () => {
   sfxShardCollect();
+});
+
+events.on('boostCollected', (data) => {
+  sfxBoostCollect(data.type);
 });
 
 // --- Platform SDK analytics hooks ---
@@ -2571,8 +2575,8 @@ function draw() {
 // --- Game Over → Run Summary transition ---
 export function transitionToRunSummary() {
   clearRunState(); // Wipe saved run on death or completion
-  const prevBest = G.meta.bestWave;
-  const bonusInfo = calculateRunBonusShards(G.runWaves, G.score, G.wave, prevBest, G.meta);
+  const prevBest = G.isHardcore ? (G.meta.hardcoreBestWave || 0) : G.meta.bestWave;
+  const bonusInfo = calculateRunBonusShards(G.runWaves, G.score, G.wave, prevBest);
 
   // Collect power info for display (with shape + name from POWER_DEFS)
   const powersHeld = G.player.powers.map(p => {

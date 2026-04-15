@@ -1,11 +1,10 @@
 'use strict';
 
-import { W, H, STATE, FONT, STAMINA_MAX, STAMINA_DASH_COST, MAX_POWER_SLOTS } from '../config.js';
+import { W, H, STATE, FONT, STAMINA_MAX, STAMINA_DASH_COST } from '../config.js';
 import { formatScore, formatTime, lerp } from '../utils.js';
 import { G } from '../state.js';
 import { ctx, drawGlowText } from '../canvas.js';
 import { getEnemyCount } from '../systems/wave.js';
-import { POWER_DEFS, EVOLUTION_RECIPES } from '../systems/powers.js';
 
 export function drawHUD() {
   const player = G.player;
@@ -227,67 +226,15 @@ export function drawHUD() {
     ctx.restore();
   }
 
-  // Persistent power indicators (left side) — pill style with mini icon
-  let iy = 95;
-  for (const power of player.powers) {
-    const def = POWER_DEFS[power.id];
-    const evoRecipe = !def ? EVOLUTION_RECIPES.find(r => r.id === power.id) : null;
-    if (!def && !evoRecipe) continue;
-    const stars = power.evolved ? '★' : '★'.repeat(power.level);
-    const color = def ? (def.icon || '#ffffff') : (evoRecipe.icon || '#ffdd44');
-    const name = def ? (def.name || power.id) : evoRecipe.name;
-
-    ctx.save();
-    // Dark pill background
-    ctx.fillStyle = 'rgba(10, 10, 20, 0.7)';
-    ctx.beginPath();
-    ctx.roundRect(16, iy, 120, 16, 3);
-    ctx.fill();
-    // Colored left accent bar
-    ctx.fillStyle = color;
-    ctx.fillRect(16, iy, 3, 16);
-    // Power name and stars
-    ctx.fillStyle = color;
-    ctx.globalAlpha = 0.9;
-    ctx.font = 'bold 10px ' + FONT;
-    ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
-    ctx.fillText(name.substring(0, 13), 22, iy + 8);
-    // Level stars right-aligned
-    ctx.textAlign = 'right';
-    ctx.fillStyle = '#ffdd44';
-    ctx.fillText(stars, 134, iy + 8);
-    ctx.restore();
-    iy += 18;
-  }
-
-  // Empty slot indicators
-  const filledSlots = player.powers.length;
-  for (let i = filledSlots; i < MAX_POWER_SLOTS; i++) {
-    ctx.save();
-    ctx.fillStyle = 'rgba(10, 10, 20, 0.35)';
-    ctx.beginPath();
-    ctx.roundRect(16, iy, 120, 16, 3);
-    ctx.fill();
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.1)';
-    ctx.lineWidth = 1;
-    ctx.stroke();
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.15)';
-    ctx.font = '10px ' + FONT;
-    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.fillText('—', 76, iy + 8);
-    ctx.restore();
-    iy += 18;
-  }
-
   // Overdrive timer
   if (player.overdriveTimer > 0) {
     ctx.save();
-    ctx.font = 'bold 14px ' + FONT;
+    ctx.font = 'bold 12px ' + FONT;
     ctx.textAlign = 'left'; ctx.textBaseline = 'top';
     ctx.fillStyle = '#ffdd44';
     ctx.shadowColor = '#ffdd44';
     ctx.shadowBlur = 6;
-    ctx.fillText('OVERDRIVE ' + player.overdriveTimer.toFixed(1) + 's', 16, iy + 4);
+    ctx.fillText('OVERDRIVE ' + player.overdriveTimer.toFixed(1) + 's', 16, 96);
     ctx.restore();
   }
 

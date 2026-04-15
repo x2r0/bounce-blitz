@@ -15,6 +15,7 @@ import { CROSSHAIR_ARM_LENGTH, CROSSHAIR_STROKE_WIDTH,
 import { sfxBounce, sfxShieldBlock } from '../systems/audio.js';
 import { saveHighScore, saveHardcoreHighScore } from '../systems/save.js';
 import { spawnCombatText } from '../systems/combat-text.js';
+import { POWER_DEFS } from '../systems/powers.js';
 
 export function updatePlayer(dt) {
   const player = G.player;
@@ -203,7 +204,12 @@ export function damagePlayer(sourceX, sourceY) {
     if (blockingOrb) {
       blockingOrb.alive = false;
       const sgPower = player.powers.find(p => p.id === 'shellGuard' || p.id === 'novaCore');
-      blockingOrb.respawnTimer = sgPower && sgPower.id === 'shellGuard' && sgPower.level >= 3 ? 4.0 : 3.0;
+      if (sgPower && sgPower.id === 'shellGuard') {
+        const shellGuardLevel = POWER_DEFS.shellGuard.levels[sgPower.level - 1];
+        blockingOrb.respawnTimer = shellGuardLevel.respawnTime;
+      } else {
+        blockingOrb.respawnTimer = POWER_DEFS.shellGuard.levels[2].respawnTime;
+      }
       player.invTimer = 0.3;
       spawnParticles(player.x, player.y, '#44ff88', 4);
       spawnCombatText('BLOCKED!', player.x, player.y - 30, { size: 14, color: '#44ff88' });

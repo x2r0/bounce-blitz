@@ -162,6 +162,7 @@ export function sfxCardPick() {
   playTone(523, 'sine', 0.1, 0.15);
   setTimeout(() => playTone(659, 'sine', 0.1, 0.15), 60);
   setTimeout(() => playTone(784, 'sine', 0.15, 0.15), 120);
+  _reactToAction('card_pick');
 }
 
 // Shield block: metallic clang
@@ -170,6 +171,7 @@ export function sfxShieldBlock() {
   playTone(1200, 'square', 0.06, 0.12);
   playTone(800, 'triangle', 0.1, 0.1);
   playNoise(0.05, 0.1, 6000, 'highpass');
+  _reactToAction('shield_block');
 }
 
 // Beam deflected by obstacle: metallic ping
@@ -185,6 +187,7 @@ export function sfxShieldBreak() {
   playTone(2000, 'square', 0.03, 0.1);
   playTone(1500, 'square', 0.05, 0.08);
   playTone(1000, 'sine', 0.08, 0.06);
+  _reactToAction('shield_break');
 }
 
 // Damage taken: low thud
@@ -213,6 +216,7 @@ export function sfxBossIntro() {
     playTone(150, 'sawtooth', 0.4, 0.1);
     playNoise(0.3, 0.08, 800, 'lowpass');
   }, 300);
+  _reactToAction('boss_intro');
 }
 
 // Boss hit: heavy impact
@@ -285,6 +289,22 @@ export function sfxEvolutionUnlock() {
   setTimeout(() => playTone(800, 'sine', 0.15, 0.15), 200);
   setTimeout(() => playTone(1200, 'triangle', 0.4, 0.2), 300);
   setTimeout(() => playNoise(0.2, 0.06, 6000, 'highpass'), 300);
+  _reactToAction('evolution');
+}
+
+export function sfxBoostCollect(boostType) {
+  const motifs = {
+    screenNuke: [196, 247, 294],
+    invincibility: [330, 440, 659],
+    healthRestore: [262, 330, 392],
+    pointFrenzy: [392, 523, 659],
+    staminaBurst: [247, 330, 494],
+  };
+  const notes = motifs[boostType] || [330, 440, 523];
+  playTone(notes[0], 'triangle', 0.08, 0.11);
+  setTimeout(() => playTone(notes[1], 'sine', 0.10, 0.10), 55);
+  setTimeout(() => playTone(notes[2], 'triangle', 0.14, 0.11), 110);
+  _reactToAction('boost', boostType);
 }
 
 // UI navigation: subtle click
@@ -306,7 +326,7 @@ export function sfxGravityBomb() {
 
 // ==========================================
 // BACKGROUND MUSIC — Procedural Music System
-// 4-voice architecture: bass, harmony, lead, texture
+// 6-voice architecture: bass, harmony, lead, texture, choirLow, choirHigh
 // ==========================================
 
 // --- Arc parameter definitions (6 arcs) ---
@@ -315,8 +335,19 @@ const MUSIC_ARCS = [
     waveMin: 1, waveMax: 9, bpm: [90, 110],
     bass: { freq: 110, type: 'sine', gain: [0.10, 0.14], lfoRate: 0.2, lfoDepth: 0.03 },
     harmony: { freq: 165, type: 'triangle', gain: [0.06, 0.10], fadeInWave: 3 },
-    lead: { notes: [220, 262, 330, 440], type: 'sawtooth', gain: [0.04, 0.08], fadeInWave: 5, subdiv: 1, legato: 1.0 },
+    lead: {
+      notes: [220, 262, 330, 440], type: 'sawtooth', gain: [0.04, 0.08], fadeInWave: 5, subdiv: 1, legato: 1.0, revealBeats: 8,
+      variation: { octaveUpChance: 0.015, octaveDownChance: 0, passingToneChance: 0.01, graceChance: 0.015, heatGraceScale: 0.03, graceHeatThreshold: 0.78 }
+    },
     texture: { freq: 880, type: 'square', gain: [0.02, 0.04], fadeInWave: 7, burstSec: 0.05, everyBeats: 4, cutoff: 1200 },
+    choir: { gain: [0.016, 0.040], cutoff: [780, 1180], Q: [0.8, 1.2], fadeInWave: 4 },
+    progression: [
+      { root: 0, quality: 'minor' },
+      { root: 3, quality: 'major' },
+      { root: 0, quality: 'minor' },
+      { root: 8, quality: 'major' },
+    ],
+    progressionBeats: 8,
     filter: { hz: [500, 1800], Q: [1, 1] },
     lfo: { rate: [0.25, 0.6], depth: 0.04 },
     transIn: 2.0,
@@ -325,8 +356,19 @@ const MUSIC_ARCS = [
     waveMin: 10, waveMax: 10, bpm: [115, 115],
     bass: { freq: 73.4, type: 'sine', gain: [0.12, 0.12], lfoRate: 0.3, lfoDepth: 0.02 },
     harmony: { freqs: [175, 220], type: 'triangle', gain: [0.08, 0.08], swapBeats: 2 },
-    lead: { notes: [294, 349, 440, 587], type: 'sawtooth', gain: [0.06, 0.06], subdiv: 1, legato: 0.8 },
+    lead: {
+      notes: [294, 349, 440, 587], type: 'sawtooth', gain: [0.06, 0.06], subdiv: 1, legato: 0.8,
+      variation: { octaveUpChance: 0.02, octaveDownChance: 0.01, passingToneChance: 0.02, graceChance: 0.03, heatGraceScale: 0.04, graceHeatThreshold: 0.72 }
+    },
     texture: { freq: 660, type: 'triangle', gain: [0.04, 0.04], burstSec: 0.03, everyBeats: 2 },
+    choir: { gain: [0.045, 0.055], cutoff: [1000, 1200], Q: [1.0, 1.4] },
+    progression: [
+      { root: 0, quality: 'minor' },
+      { root: 8, quality: 'major' },
+      { root: 3, quality: 'major' },
+      { root: 0, quality: 'minor' },
+    ],
+    progressionBeats: 4,
     filter: { hz: [2000, 2000], Q: [2, 2] },
     lfo: { rate: [0.4, 0.4], depth: 0.03 },
     transIn: 2.0,
@@ -335,8 +377,19 @@ const MUSIC_ARCS = [
     waveMin: 11, waveMax: 19, bpm: [118, 130],
     bass: { freq: 82.4, type: 'sine', gain: [0.12, 0.16], staccato: true },
     harmony: { freqs: [87.3, 123.5], type: 'triangle', gain: [0.07, 0.10], swapBeats: 4 },
-    lead: { notes: [165, 175, 220, 247], type: 'sawtooth', gain: [0.05, 0.09], subdiv: 4, legato: 0.7, cutoff: 1500 },
+    lead: {
+      notes: [165, 175, 220, 247], type: 'sawtooth', gain: [0.05, 0.09], subdiv: 4, legato: 0.7, cutoff: 1500, revealBeats: 6,
+      variation: { octaveUpChance: 0.03, octaveDownChance: 0.01, passingToneChance: 0.03, graceChance: 0.04, heatGraceScale: 0.05, graceHeatThreshold: 0.68 }
+    },
     texture: { freq: 440, type: 'square', gain: [0.03, 0.05], burstSec: 0.02, everyBeats: 1, pitchDev: 0.1 },
+    choir: { gain: [0.026, 0.052], cutoff: [850, 1380], Q: [1.2, 2.0], fadeInWave: 13 },
+    progression: [
+      { root: 0, quality: 'minor' },
+      { root: 1, quality: 'major' },
+      { root: 8, quality: 'major' },
+      { root: 0, quality: 'minor' },
+    ],
+    progressionBeats: 8,
     filter: { hz: [1200, 2500], Q: [1, 4] },
     lfo: { rate: [0.8, 1.5], depth: 0.05 },
     transIn: 2.0,
@@ -345,8 +398,19 @@ const MUSIC_ARCS = [
     waveMin: 20, waveMax: 20, bpm: [135, 135],
     bass: { freq: 110, type: 'sine', gain: [0.15, 0.15], bass2Freq: 82.4 },
     harmony: { freq: 262, type: 'triangle', gain: [0.09, 0.09], vibratoHz: 1, vibratoDep: 5 },
-    lead: { notes: [440, 494, 523, 659, 880], type: 'sawtooth', gain: [0.08, 0.08], subdiv: 8, legato: 0.6, cutoff: 3000 },
+    lead: {
+      notes: [440, 494, 523, 659, 880], type: 'sawtooth', gain: [0.08, 0.08], subdiv: 8, legato: 0.6, cutoff: 3000,
+      variation: { octaveUpChance: 0.04, octaveDownChance: 0.015, passingToneChance: 0.04, graceChance: 0.05, heatGraceScale: 0.06, graceHeatThreshold: 0.62 }
+    },
     texture: { freq: 4000, type: 'square', gain: [0.05, 0.05], burstSec: 0.015, everyBeats: 0.5 },
+    choir: { gain: [0.055, 0.065], cutoff: [1300, 1700], Q: [1.3, 1.7] },
+    progression: [
+      { root: 0, quality: 'minor' },
+      { root: 3, quality: 'major' },
+      { root: 8, quality: 'major' },
+      { root: 0, quality: 'minor' },
+    ],
+    progressionBeats: 4,
     filter: { hz: [3000, 3000], Q: [6, 6] },
     lfo: { rate: [1.2, 1.2], depth: 0.06 },
     transIn: 1.5,
@@ -355,8 +419,19 @@ const MUSIC_ARCS = [
     waveMin: 21, waveMax: 29, bpm: [125, 108],
     bass: { freq: 77.8, type: 'sine', gain: [0.12, 0.16], pitchLfoRate: 0.15, pitchLfoDep: 2 },
     harmony: { freqs: [110, 92.5], type: 'triangle', gain: [0.05, 0.05], swapBeats: 4 },
-    lead: { notes: [156, 185, 220, 311], type: 'sawtooth', gain: [0.05, 0.08], subdiv: 0.667, legato: 0.7, silenceChance: 0.3 },
+    lead: {
+      notes: [156, 185, 220, 311], type: 'sawtooth', gain: [0.05, 0.08], subdiv: 0.667, legato: 0.7, silenceChance: 0.3,
+      variation: { octaveUpChance: 0.015, octaveDownChance: 0.02, passingToneChance: 0.015, graceChance: 0.015, heatGraceScale: 0.02, graceHeatThreshold: 0.8 }
+    },
     texture: { freq: 40, type: 'square', gain: [0.04, 0.04], continuous: true, cutoff: 200, contLfoRate: 0.1 },
+    choir: { gain: [0.040, 0.070], cutoff: [700, 1000], Q: [1.0, 1.8] },
+    progression: [
+      { root: 0, quality: 'minor', fifth: 6, choirRole: 'fifth' },
+      { root: 3, quality: 'minor', fifth: 6, choirRole: 'fifth' },
+      { root: 0, quality: 'minor', fifth: 6, choirRole: 'fifth' },
+      { root: 9, quality: 'minor', fifth: 6, choirRole: 'fifth' },
+    ],
+    progressionBeats: 8,
     filter: { hz: [2200, 800], Q: [2, 3] },
     lfo: { rate: [0.4, 0.4], depth: [0.02, 0.06] },
     transIn: 2.0,
@@ -365,8 +440,19 @@ const MUSIC_ARCS = [
     waveMin: 30, waveMax: 30, bpm: [100, 100],
     bass: { freq: 55, type: 'sine', gain: [0.12, 0.12] },
     harmony: { freq: 82.4, type: 'triangle', gain: [0.03, 0.03] },
-    lead: { notes: [220], type: 'sawtooth', gain: [0.05, 0.05], subdiv: 0.5, legato: 0.2, cutoff: 600 },
+    lead: {
+      notes: [220], type: 'sawtooth', gain: [0.05, 0.05], subdiv: 0.5, legato: 0.2, cutoff: 600,
+      variation: { octaveUpChance: 0, octaveDownChance: 0.01, passingToneChance: 0, graceChance: 0, heatGraceScale: 0, graceHeatThreshold: 1 }
+    },
     texture: { freq: 0, type: 'sine', gain: [0, 0] },
+    choir: { gain: [0.055, 0.085], cutoff: [500, 700], Q: [1.5, 2.4] },
+    progression: [
+      { root: 0, quality: 'minor' },
+      { root: 1, quality: 'minor', fifth: 6 },
+      { root: 0, quality: 'minor' },
+      { root: 10, quality: 'major' },
+    ],
+    progressionBeats: 4,
     filter: { hz: [600, 600], Q: [1, 1] },
     lfo: { rate: [0.2, 0.2], depth: 0.02 },
     transIn: 3.0,
@@ -379,16 +465,38 @@ const BOSS_THEMES = [
     bpm: 140, outGain: 0.22,
     bass: { freq: 73.4, type: 'sine', gain: 0.16, lfoRate: 2.3, lfoDepth: 0.04 },
     harmony: { freqs: [87.3, 110], type: 'triangle', gain: 0.08, vibratoHz: 5, vibratoDep: 3 },
-    lead: { notes: [147, 175, 220, 294], type: 'sawtooth', gain: 0.07, subdiv: 4, legato: 0.25, cutoff: 2000 },
+    lead: {
+      notes: [147, 175, 220, 294], type: 'sawtooth', gain: 0.07, subdiv: 4, legato: 0.25, cutoff: 2000,
+      variation: { octaveUpChance: 0.02, octaveDownChance: 0.01, passingToneChance: 0.02, graceChance: 0.03, heatGraceScale: 0.05, graceHeatThreshold: 0.68 }
+    },
     texture: { freq: 220, type: 'square', gain: 0.05, burstSec: 0.01, everyBeats: 0.5 },
+    choir: { gain: 0.060, cutoff: 1200, Q: 1.6 },
+    progression: [
+      { root: 0, quality: 'minor' },
+      { root: 8, quality: 'major' },
+      { root: 3, quality: 'major' },
+      { root: 0, quality: 'minor' },
+    ],
+    progressionBeats: 4,
     filter: 2200, filterQ: 4, lfoRate: 2.0,
   },
   { // Boss 2: Nexus Core (Wave 20)
     bpm: 150, outGain: 0.22,
     bass: { freq: 65.4, type: 'square', gain: 0.14, cutoff: 300 },
     harmony: { freqs: [77.8, 98], type: 'triangle', gain: 0.07, swapBeats: 1 },
-    lead: { notes: [131, 156, 196, 233, 262], type: 'sawtooth', gain: 0.08, subdiv: 8, legato: 0.5, cutoff: 2500 },
+    lead: {
+      notes: [131, 156, 196, 233, 262], type: 'sawtooth', gain: 0.08, subdiv: 8, legato: 0.5, cutoff: 2500,
+      variation: { octaveUpChance: 0.04, octaveDownChance: 0.015, passingToneChance: 0.04, graceChance: 0.05, heatGraceScale: 0.07, graceHeatThreshold: 0.6 }
+    },
     texture: { freq: 5000, type: 'square', gain: 0.04, burstSec: 0.008, everyBeats: 1 },
+    choir: { gain: 0.055, cutoff: 1400, Q: 2.0 },
+    progression: [
+      { root: 0, quality: 'minor' },
+      { root: 8, quality: 'major' },
+      { root: 3, quality: 'major' },
+      { root: 0, quality: 'minor' },
+    ],
+    progressionBeats: 4,
     filter: 2500, filterQ: 5, lfoRate: 2.5,
     phaseEsc: { bpmAdd: 10, filterAdd: 500, texGainAdd: 0.02 },
   },
@@ -396,12 +504,25 @@ const BOSS_THEMES = [
     bpm: 95, outGain: 0.22,
     bass: { freqs: [55, 77.8], type: 'sine', gain: 0.18, lfoRate: 0.08, lfoDepth: 3, swapBars: 4 },
     harmony: { type: 'triangle', gain: 0.04 },
-    lead: { notes: [880, 440, 220, 110], type: 'sawtooth', gain: 0.06, subdiv: 0.25, legato: 0.3, cutoff: 500, silenceAfter: 4 },
+    lead: {
+      notes: [880, 440, 220, 110], type: 'sawtooth', gain: 0.06, subdiv: 0.25, legato: 0.3, cutoff: 500, silenceAfter: 4,
+      variation: { octaveUpChance: 0, octaveDownChance: 0.02, passingToneChance: 0.01, graceChance: 0.01, heatGraceScale: 0.01, graceHeatThreshold: 0.85 }
+    },
     texture: { freq: 30, type: 'sine', gain: 0.06, continuous: true, contLfoRate: 0.05 },
+    choir: { gain: 0.080, cutoff: 650, Q: 2.4 },
     filter: 800, filterQ: 2, lfoRate: 0.5,
     phaseEsc: { bassGainAdd: 0.01, texGainAdd: 0.01, leadFilterAdd: 100 },
   },
 ];
+
+const TITLE_PROGRESSION = [
+  { root: 0, quality: 'minor' },
+  { root: 3, quality: 'major' },
+  { root: 7, quality: 'minor' },
+  { root: 5, quality: 'major' },
+];
+const TITLE_PROGRESSION_BEATS = 4;
+const TITLE_CHOIR = { gain: 0.05, cutoff: 1350, Q: 1.2 };
 
 // --- Internal music state ---
 let _musicPlaying = false;
@@ -413,7 +534,7 @@ let _bossPhase = 0;
 let _gameState = 'title'; // title | playing | wave_break | power_select | boss_intro | boss_fight | game_over
 
 // Voice nodes
-let _voices = null;   // { bass, harmony, lead, texture, bass2? }
+let _voices = null;   // { bass, harmony, lead, texture, choirLow, choirHigh, bass2? }
 let _outputGain = null;
 let _globalFilter = null;
 let _lfo = null;
@@ -422,12 +543,14 @@ let _bassPitchLfo = null;
 let _harmonyVibrato = null;
 let _leadFilter = null;
 let _textureFilter = null;
+let _choirFilter = null;
 
 // Scheduler state
 let _schedulerTimer = null;
 let _nextLeadTime = 0;
 let _leadIdx = 0;
 let _nextTextureTime = 0;
+let _nextChordTime = 0;
 let _nextHarmonySwapTime = 0;
 let _harmonyFlip = false;
 let _nextBassSwapTime = 0;
@@ -435,11 +558,18 @@ let _bassFlip = false;
 let _currentBpm = 90;
 let _leadSilenced = false; // for void gaps
 let _voidLeadCount = 0; // for Void Warden silence-after pattern
+let _chordIdx = 0;
+let _currentHarmonicRoot = 110;
+let _currentChordQuality = 'minor';
+let _currentChordFifth = 7;
+let _leadSpotlightUntil = 0;
+let _reactiveCooldowns = Object.create(null);
 
 // Saved params for state restoration
 let _savedFilterHz = 0;
 let _savedLeadGain = 0;
 let _savedBpm = 0;
+let _savedChoirCutoff = 0;
 
 // --- Gameplay-reactive music state ---
 let _actionHeat = 0;        // 0-1 cumulative action intensity, decays over time
@@ -482,10 +612,8 @@ const ENEMY_SCALE_DEGREE = {
   pulser: 1, teleporter: 4, bomber: 0, spawner: 2,
   spawner_minion: 6, sniper: 3,
 };
-// A minor scale intervals (semitones from root)
-const MINOR_SCALE = [0, 2, 3, 5, 7, 8, 10];
-
 function _getArcRoot() {
+  if (_currentHarmonicRoot > 0) return _currentHarmonicRoot;
   if (_isBossMusic) {
     const boss = BOSS_THEMES[_getBossIndex(_currentWave)];
     return boss.bass.freq || boss.bass.freqs?.[0] || 110;
@@ -495,10 +623,158 @@ function _getArcRoot() {
   return arc ? arc.bass.freq : 110;
 }
 
-function _scaleFreq(root, degree, octaveShift) {
-  const semitones = MINOR_SCALE[degree % 7];
-  const oct = Math.floor(degree / 7) + (octaveShift || 0);
-  return root * Math.pow(2, (semitones / 12) + oct);
+function _freqWithSemitone(base, semitones) {
+  return base * Math.pow(2, semitones / 12);
+}
+
+function _getAccentIntervals() {
+  const third = _currentChordQuality === 'major' ? 4 : 3;
+  const fifth = _currentChordFifth || 7;
+  const seventh = fifth === 6 ? 9 : (_currentChordQuality === 'major' ? 11 : 10);
+  return [0, third, fifth, 12, third + 12, fifth + 12, seventh + 12];
+}
+
+function _accentFreq(root, degree, octaveShift) {
+  const intervals = _getAccentIntervals();
+  const idx = ((degree % intervals.length) + intervals.length) % intervals.length;
+  const oct = Math.floor(degree / intervals.length) + (octaveShift || 0);
+  return root * Math.pow(2, (intervals[idx] / 12) + oct);
+}
+
+function _getCurrentProgression() {
+  if (_gameState === 'title') {
+    return { steps: TITLE_PROGRESSION, beats: TITLE_PROGRESSION_BEATS, baseFreq: 110 };
+  }
+  if (_isBossMusic) {
+    const boss = BOSS_THEMES[_getBossIndex(_currentWave)];
+    if (!boss || !boss.progression) return null;
+    return {
+      steps: boss.progression,
+      beats: boss.progressionBeats || 4,
+      baseFreq: boss.bass.freq || boss.bass.freqs?.[0] || 110
+    };
+  }
+  const arc = MUSIC_ARCS[_currentArcIdx];
+  if (!arc || !arc.progression) return null;
+  return {
+    steps: arc.progression,
+    beats: arc.progressionBeats || 4,
+    baseFreq: arc.bass.freq
+  };
+}
+
+function _getCurrentChoirDef() {
+  if (_gameState === 'title') return TITLE_CHOIR;
+  if (_isBossMusic) {
+    const boss = BOSS_THEMES[_getBossIndex(_currentWave)];
+    return boss ? boss.choir : null;
+  }
+  const arc = MUSIC_ARCS[_currentArcIdx];
+  return arc ? arc.choir : null;
+}
+
+function _getChoirTargetGain() {
+  const choir = _getCurrentChoirDef();
+  if (!choir) return 0;
+  let base = 0;
+  if (_gameState === 'title') {
+    base = choir.gain || 0;
+  } else if (_isBossMusic) {
+    base = choir.gain || 0;
+  } else {
+    const arc = MUSIC_ARCS[_currentArcIdx];
+    const p = _getArcProgress(_currentWave, arc);
+    base = Array.isArray(choir.gain) ? _lerp(choir.gain[0], choir.gain[1], p) : (choir.gain || 0);
+    if (choir.fadeInWave && _currentWave < choir.fadeInWave) return 0;
+  }
+
+  let stateMul = 1.0;
+  if (_gameState === 'wave_break') stateMul = 1.12;
+  else if (_gameState === 'power_select') stateMul = 1.22;
+  else if (_gameState === 'boss_intro') stateMul = 1.35;
+  else if (_gameState === 'playing' || _gameState === 'boss_fight') {
+    stateMul = 0.90 + _actionHeat * 0.28 + _playerSpeed * 0.12;
+  }
+
+  const spotlightMul = _isLeadSpotlightActive() ? 0.74 : 1;
+  return Math.min(0.12, base * stateMul * spotlightMul);
+}
+
+function _applyChoirParams(def, wave, dur) {
+  if (!_voices || !_choirFilter || !def) return;
+  const td = dur || 1.0;
+  let cutoff = def.cutoff || 1200;
+  let q = def.Q || 1.0;
+  if (Array.isArray(def.cutoff) && !_isBossMusic && _gameState !== 'title') {
+    const arc = MUSIC_ARCS[_currentArcIdx];
+    const p = _getArcProgress(wave, arc);
+    cutoff = _lerp(def.cutoff[0], def.cutoff[1], p);
+  }
+  if (Array.isArray(def.Q) && !_isBossMusic && _gameState !== 'title') {
+    const arc = MUSIC_ARCS[_currentArcIdx];
+    const p = _getArcProgress(wave, arc);
+    q = _lerp(def.Q[0], def.Q[1], p);
+  }
+  _savedChoirCutoff = cutoff;
+  _ramp(_choirFilter.frequency, cutoff, td);
+  _ramp(_choirFilter.Q, q, td);
+  _voices.choirLow.osc.type = 'triangle';
+  _voices.choirHigh.osc.type = _isBossMusic ? 'sawtooth' : 'triangle';
+}
+
+function _applyChordToVoices(time, chord, baseFreq) {
+  if (!_voices || !chord) return;
+  const root = _freqWithSemitone(baseFreq, chord.root || 0);
+  const third = chord.quality === 'major' ? 4 : 3;
+  const fifth = chord.fifth || 7;
+  const harmonySemi = chord.harmonyRole === 'fifth' ? fifth : third;
+  const choirSemi = chord.choirRole === 'fifth' ? fifth + 12 : third + 12;
+  _currentHarmonicRoot = root;
+  _currentChordQuality = chord.quality || 'minor';
+  _currentChordFifth = fifth;
+
+  if (_voices.harmony) {
+    _voices.harmony.osc.frequency.setValueAtTime(_freqWithSemitone(root, harmonySemi), time);
+  }
+  if (_voices.choirLow) {
+    _voices.choirLow.osc.frequency.setValueAtTime(root * 2, time);
+  }
+  if (_voices.choirHigh) {
+    _voices.choirHigh.osc.frequency.setValueAtTime(_freqWithSemitone(root, choirSemi), time);
+  }
+}
+
+function _scheduleChoirChord(time, beatInterval) {
+  if (!_voices || !_voices.choirLow || !_voices.choirHigh) return;
+  const targetGain = _getChoirTargetGain();
+  const intervalSec = Math.max(0.4, _beatSec() * beatInterval);
+  const tension = 1 - _playerHpRatio;
+  const lowTarget = Math.min(0.14, targetGain * (1.10 + tension * 0.20));
+  const highTarget = Math.min(0.12, targetGain * (0.82 + _actionHeat * 0.35 + _playerSpeed * 0.10));
+  const attack = Math.min(0.55, intervalSec * 0.22);
+  const hold = time + Math.max(attack + 0.05, intervalSec * 0.72);
+  const release = time + intervalSec * 0.96;
+  const lowGain = _voices.choirLow.gain.gain;
+  const highGain = _voices.choirHigh.gain.gain;
+
+  lowGain.setValueAtTime(0, time);
+  lowGain.linearRampToValueAtTime(lowTarget, time + attack);
+  lowGain.setValueAtTime(lowTarget, hold);
+  lowGain.linearRampToValueAtTime(targetGain * 0.18, release);
+
+  highGain.setValueAtTime(0, time);
+  highGain.linearRampToValueAtTime(highTarget, time + attack * 0.85);
+  highGain.setValueAtTime(highTarget, hold);
+  highGain.linearRampToValueAtTime(targetGain * 0.12, release);
+}
+
+function _applyProgressionStep(time) {
+  const progression = _getCurrentProgression();
+  if (!progression || !progression.steps || progression.steps.length === 0) return;
+  const chord = progression.steps[_chordIdx % progression.steps.length];
+  _applyChordToVoices(time, chord, progression.baseFreq);
+  _scheduleChoirChord(time, progression.beats || 4);
+  _chordIdx++;
 }
 
 function _playMusicAccent(freq, dur, vol, delay, prominent) {
@@ -524,6 +800,32 @@ function _playMusicAccent(freq, dur, vol, delay, prominent) {
   osc.stop(t + dur + 0.01);
 }
 
+function _canReactNow(action, minInterval) {
+  if (!audioCtx) return false;
+  const now = audioCtx.currentTime;
+  const last = _reactiveCooldowns[action] || -Infinity;
+  if (now - last < minInterval) return false;
+  _reactiveCooldowns[action] = now;
+  return true;
+}
+
+function _isLeadSpotlightActive() {
+  return !!audioCtx && _leadSpotlightUntil > audioCtx.currentTime;
+}
+
+function _triggerLeadSpotlight(beats, gainBoost) {
+  if (!audioCtx) return;
+  const root = _getArcRoot();
+  const now = audioCtx.currentTime;
+  const duration = Math.max(1.2, _beatSec() * (beats || 6));
+  _leadSpotlightUntil = Math.max(_leadSpotlightUntil, now + duration);
+  if (_leadFilter) {
+    _ramp(_leadFilter.frequency, Math.min(4200, (_leadFilter.frequency.value || 1800) + 600), 0.18);
+  }
+  _playMusicAccent(_accentFreq(root, 0, 1), 0.16, 0.06 + (gainBoost || 0), 0);
+  _playMusicAccent(_accentFreq(root, 2, 1), 0.22, 0.05 + (gainBoost || 0), 0.18);
+}
+
 function _reactToAction(action, intensity) {
   if (!_musicPlaying || !_voices || !audioCtx) return;
   const now = audioCtx.currentTime;
@@ -535,7 +837,7 @@ function _reactToAction(action, intensity) {
     _startHeatDecay();
     // Prominent in-key accent note based on enemy type
     const degree = intensity || 0;
-    const freq = _scaleFreq(root, degree, 2);
+    const freq = _accentFreq(root, degree, 1);
     const vol = 0.10 + _actionHeat * 0.06;
     _playMusicAccent(freq, 0.15, vol, 0, true); // prominent — through sfxGain
     // Filter spike
@@ -552,7 +854,7 @@ function _reactToAction(action, intensity) {
     const noteCount = Math.min(4, 1 + Math.floor(count / 3));
     const baseDeg = count % 7;
     for (let i = 0; i < noteCount; i++) {
-      const freq = _scaleFreq(root, baseDeg + i, 2);
+      const freq = _accentFreq(root, baseDeg + i, 1);
       _playMusicAccent(freq, 0.10, 0.10, i * 0.06, true);
     }
     // Filter sweep
@@ -566,10 +868,10 @@ function _reactToAction(action, intensity) {
     _actionHeat = Math.min(1, _actionHeat + 0.04);
     _startHeatDecay();
     // Prominent bass stab on dash — rhythmic low note
-    const freq = _scaleFreq(root, 0, 1); // bass octave root
+    const freq = _accentFreq(root, 0, 0);
     _playMusicAccent(freq, 0.10, 0.12, 0, true); // prominent bass hit
     // Plus a high shimmer
-    _playMusicAccent(_scaleFreq(root, 4, 3), 0.08, 0.06, 0.02);
+    _playMusicAccent(_accentFreq(root, 2, 2), 0.08, 0.06, 0.02);
   } else if (action === 'damage') {
     // Filter dip — music pulls back on hit
     if (_globalFilter) {
@@ -583,9 +885,9 @@ function _reactToAction(action, intensity) {
     }
   } else if (action === 'wave_clear') {
     // Resolving descending phrase: root→5th→root (tension release)
-    _playMusicAccent(_scaleFreq(root, 0, 3), 0.25, 0.09, 0);
-    _playMusicAccent(_scaleFreq(root, 4, 2), 0.25, 0.08, 0.2);
-    _playMusicAccent(_scaleFreq(root, 0, 2), 0.4, 0.07, 0.4);
+    _playMusicAccent(_accentFreq(root, 0, 2), 0.25, 0.09, 0);
+    _playMusicAccent(_accentFreq(root, 2, 1), 0.25, 0.08, 0.2);
+    _playMusicAccent(_accentFreq(root, 1, 1), 0.4, 0.07, 0.4);
     // Filter open + gain swell
     if (_globalFilter) {
       _globalFilter.frequency.setValueAtTime(4000, now);
@@ -600,12 +902,54 @@ function _reactToAction(action, intensity) {
     _actionHeat = Math.min(1, _actionHeat + 0.08);
     _startHeatDecay();
     // Aggressive accent note — low power chord hit
-    _playMusicAccent(_scaleFreq(root, 0, 1), 0.15, 0.08);
-    _playMusicAccent(_scaleFreq(root, 4, 1), 0.12, 0.06, 0.02);
+    _playMusicAccent(_accentFreq(root, 0, 0), 0.15, 0.08);
+    _playMusicAccent(_accentFreq(root, 2, 0), 0.12, 0.06, 0.02);
     if (_globalFilter) {
       const cur = _globalFilter.frequency.value;
       _globalFilter.frequency.setValueAtTime(Math.min(5000, cur + 600), now);
       _globalFilter.frequency.linearRampToValueAtTime(cur, now + 0.2);
+    }
+  } else if (action === 'shield_block') {
+    if (!_canReactNow(action, 0.18)) return;
+    _playMusicAccent(_accentFreq(root, 0, 1), 0.08, 0.05, 0);
+    _playMusicAccent(_accentFreq(root, 2, 1), 0.10, 0.04, 0.03);
+  } else if (action === 'shield_break') {
+    if (!_canReactNow(action, 0.14)) return;
+    _playMusicAccent(_accentFreq(root, 6, 0), 0.08, 0.05, 0, true);
+    _playMusicAccent(_accentFreq(root, 0, 1), 0.16, 0.05, 0.08);
+  } else if (action === 'card_pick') {
+    if (!_canReactNow(action, 0.20)) return;
+    _playMusicAccent(_accentFreq(root, 0, 1), 0.10, 0.05, 0);
+    _playMusicAccent(_accentFreq(root, 1, 1), 0.14, 0.05, 0.07);
+  } else if (action === 'evolution') {
+    _actionHeat = Math.min(1, _actionHeat + 0.12);
+    _startHeatDecay();
+    _triggerLeadSpotlight(10, 0.02);
+    _playMusicAccent(_accentFreq(root, 0, 1), 0.18, 0.07, 0, true);
+    _playMusicAccent(_accentFreq(root, 1, 1), 0.20, 0.06, 0.12);
+    _playMusicAccent(_accentFreq(root, 2, 2), 0.32, 0.05, 0.28);
+    if (_outputGain) {
+      _outputGain.gain.setValueAtTime(1.08, now);
+      _outputGain.gain.linearRampToValueAtTime(1.0, now + 0.5);
+    }
+  } else if (action === 'boss_intro') {
+    if (!_canReactNow(action, 0.50)) return;
+    _triggerLeadSpotlight(8, 0.01);
+    _playMusicAccent(_accentFreq(root, 0, 0), 0.24, 0.05, 0, true);
+    _playMusicAccent(_accentFreq(root, 2, 1), 0.28, 0.04, 0.16);
+  } else if (action === 'boost') {
+    if (!_canReactNow(action, 0.20)) return;
+    const boostType = intensity;
+    const patterns = {
+      screenNuke: [0, 6, 1],
+      invincibility: [0, 2, 4],
+      healthRestore: [1, 2, 0],
+      pointFrenzy: [2, 4, 6],
+      staminaBurst: [0, 1, 2],
+    };
+    const degrees = patterns[boostType] || [0, 2, 4];
+    for (let i = 0; i < degrees.length; i++) {
+      _playMusicAccent(_accentFreq(root, degrees[i], i === 2 ? 2 : 1), 0.12 + i * 0.03, 0.04 + i * 0.01, i * 0.06);
     }
   }
 }
@@ -701,13 +1045,23 @@ function _createVoices() {
   _textureFilter.Q.value = 1;
   _textureFilter.connect(_globalFilter);
 
+  _choirFilter = ctx.createBiquadFilter();
+  _choirFilter.type = 'bandpass';
+  _choirFilter.frequency.value = 1200;
+  _choirFilter.Q.value = 1.2;
+  _choirFilter.connect(_globalFilter);
+
   _voices = {
     bass: _createOsc('sine', 110, _globalFilter),
     harmony: _createOsc('triangle', 165, _globalFilter),
     lead: _createOsc('sawtooth', 220, _leadFilter),
     texture: _createOsc('square', 880, _textureFilter),
+    choirLow: _createOsc('triangle', 220, _choirFilter),
+    choirHigh: _createOsc('triangle', 330, _choirFilter),
     bass2: null,
   };
+  _voices.choirLow.osc.detune.value = -6;
+  _voices.choirHigh.osc.detune.value = 7;
 
   // LFO → outputGain
   _lfo = ctx.createOscillator();
@@ -733,6 +1087,8 @@ function _destroyVoices() {
     _stopOsc(_voices.harmony);
     _stopOsc(_voices.lead);
     _stopOsc(_voices.texture);
+    _stopOsc(_voices.choirLow);
+    _stopOsc(_voices.choirHigh);
     if (_voices.bass2) _stopOsc(_voices.bass2);
     _voices = null;
   }
@@ -744,6 +1100,7 @@ function _destroyVoices() {
   _globalFilter = null;
   _leadFilter = null;
   _textureFilter = null;
+  _choirFilter = null;
 }
 
 // --- Scheduler ---
@@ -752,9 +1109,11 @@ function _startScheduler() {
   const ctx = ensureCtx();
   _nextLeadTime = ctx.currentTime + 0.05;
   _nextTextureTime = ctx.currentTime + 0.05;
+  _nextChordTime = ctx.currentTime + 0.05;
   _nextHarmonySwapTime = ctx.currentTime + 0.05;
   _nextBassSwapTime = ctx.currentTime + 0.05;
   _leadIdx = 0;
+  _chordIdx = 0;
   _harmonyFlip = false;
   _bassFlip = false;
   _voidLeadCount = 0;
@@ -784,6 +1143,15 @@ function _schedulerTick() {
   const arc = (_isBossMusic || isTitle) ? null : MUSIC_ARCS[_currentArcIdx];
   const boss = _isBossMusic ? BOSS_THEMES[_getBossIndex(_currentWave)] : null;
   const beat = _beatSec();
+  const progression = _getCurrentProgression();
+
+  if (progression) {
+    const interval = beat * (progression.beats || 4);
+    while (_nextChordTime < now + ahead) {
+      _applyProgressionStep(_nextChordTime);
+      _nextChordTime += interval;
+    }
+  }
 
   // Lead arpeggio
   const leadDef = isTitle ? _titleLeadDef : (_isBossMusic ? boss.lead : arc.lead);
@@ -808,7 +1176,7 @@ function _schedulerTick() {
 
   // Harmony swap (alternating freqs) — skip during title (no alternating harmony)
   const harmDef = _isBossMusic ? boss.harmony : (arc ? arc.harmony : null);
-  if (harmDef && harmDef.freqs && harmDef.swapBeats && _voices.harmony) {
+  if (!progression && harmDef && harmDef.freqs && harmDef.swapBeats && _voices.harmony) {
     const interval = beat * harmDef.swapBeats;
     while (_nextHarmonySwapTime < now + ahead) {
       const freq = harmDef.freqs[_harmonyFlip ? 1 : 0];
@@ -872,18 +1240,21 @@ function _scheduleLeadNote(time, def, noteDur) {
   }
 
   let freq = notes[_leadIdx % notes.length];
+  const variation = def.variation || {};
+  const octaveUpChance = variation.octaveUpChance || 0;
+  const octaveDownChance = variation.octaveDownChance || 0;
+  const passingToneChance = variation.passingToneChance || 0;
+  const graceChance = variation.graceChance || 0;
+  const heatGraceScale = variation.heatGraceScale || 0;
+  const graceHeatThreshold = variation.graceHeatThreshold === undefined ? 0.7 : variation.graceHeatThreshold;
 
-  // --- Arpeggio variation (reduces repetitiveness) ---
-  // Occasional octave shift (12% chance up, 5% chance down)
   const rnd = Math.random();
-  if (rnd < 0.12 && freq < 2000) freq *= 2;
-  else if (rnd < 0.17 && freq > 100) freq *= 0.5;
-  // Occasional passing tone — shift by a musical third (8% chance)
-  else if (rnd < 0.25) freq *= (Math.random() < 0.5 ? 1.26 : 0.84); // ~major 3rd up/down
-  // Action heat adds energy: occasional grace note doubling
-  if (_actionHeat > 0.4 && Math.random() < _actionHeat * 0.3 && _voices.lead.osc) {
-    // Quick grace note at current freq before the main note
-    const graceFreq = freq * (Math.random() < 0.5 ? 1.125 : 0.89); // major 2nd
+  if (rnd < octaveUpChance && freq < 2000) freq *= 2;
+  else if (rnd < octaveUpChance + octaveDownChance && freq > 100) freq *= 0.5;
+  else if (rnd < octaveUpChance + octaveDownChance + passingToneChance) freq *= (Math.random() < 0.5 ? 1.125 : 0.943);
+
+  if (_actionHeat > graceHeatThreshold && Math.random() < (graceChance + _actionHeat * heatGraceScale) && _voices.lead.osc) {
+    const graceFreq = freq * (Math.random() < 0.5 ? 1.059 : 0.943);
     _voices.lead.osc.frequency.setValueAtTime(graceFreq, time);
     _voices.lead.osc.frequency.setValueAtTime(freq, time + noteDur * 0.15);
   } else {
@@ -911,14 +1282,14 @@ function _getLeadTargetGain() {
   if (_gameState === 'title') return 0.05; // Title arpeggio gain
   if (_isBossMusic) {
     const boss = BOSS_THEMES[_getBossIndex(_currentWave)];
-    return boss.lead.gain;
+    return boss.lead.gain * (_isLeadSpotlightActive() ? 1.22 : 1);
   }
   const arc = MUSIC_ARCS[_currentArcIdx];
   const p = _getArcProgress(_currentWave, arc);
   const g = _lerp(arc.lead.gain[0], arc.lead.gain[1], p);
   // Fade in based on wave
   if (arc.lead.fadeInWave && _currentWave < arc.lead.fadeInWave) return 0;
-  return g;
+  return g * (_isLeadSpotlightActive() ? 1.28 : 1);
 }
 
 function _scheduleTextureBurst(time, def) {
@@ -936,19 +1307,24 @@ function _scheduleTextureBurst(time, def) {
   gain.setValueAtTime(targetGain, time);
   gain.setValueAtTime(targetGain, time + burstDur * 0.8);
   gain.linearRampToValueAtTime(0, time + burstDur);
+  if ((_gameState === 'playing' || _gameState === 'boss_fight') && _actionHeat > 0.55) {
+    const echoGain = targetGain * (0.35 + _actionHeat * 0.25);
+    gain.setValueAtTime(echoGain, time + burstDur * 1.35);
+    gain.linearRampToValueAtTime(0, time + burstDur * 2.1);
+  }
 }
 
 function _getTextureTargetGain() {
   if (_gameState === 'title') return 0.03; // Title texture ping gain
   if (_isBossMusic) {
     const boss = BOSS_THEMES[_getBossIndex(_currentWave)];
-    return boss.texture.gain;
+    return boss.texture.gain * (_isLeadSpotlightActive() ? 0.72 : 1);
   }
   const arc = MUSIC_ARCS[_currentArcIdx];
   const p = _getArcProgress(_currentWave, arc);
   const g = _lerp(arc.texture.gain[0], arc.texture.gain[1], p);
   if (arc.texture.fadeInWave && _currentWave < arc.texture.fadeInWave) return 0;
-  return g;
+  return g * (_isLeadSpotlightActive() ? 0.58 : 1);
 }
 
 // --- Apply arc parameters to voices ---
@@ -1038,6 +1414,11 @@ function _applyArcParams(wave, dur) {
   _ramp(_globalFilter.frequency, fHz, td);
   _ramp(_globalFilter.Q, fQ, td);
 
+  // Choir
+  _applyChoirParams(arc.choir, wave, td);
+  _voices.choirLow.gain.gain.setValueAtTime(0, ctx.currentTime);
+  _voices.choirHigh.gain.gain.setValueAtTime(0, ctx.currentTime);
+
   // LFO
   const lfoRate = _lerp(arc.lfo.rate[0], arc.lfo.rate[1], p);
   const lfoDepth = Array.isArray(arc.lfo.depth) ? _lerp(arc.lfo.depth[0], arc.lfo.depth[1], p) : arc.lfo.depth;
@@ -1046,6 +1427,10 @@ function _applyArcParams(wave, dur) {
 
   // Output gain — per-voice gains handle balance; outputGain stays ~1.0
   _ramp(_outputGain.gain, 1.0, td);
+  _currentHarmonicRoot = arc.bass.freq;
+  _chordIdx = 0;
+  _nextChordTime = ctx.currentTime + 0.05;
+  _applyProgressionStep(ctx.currentTime);
 }
 
 function _setupBassPitchLfo(arc, dur) {
@@ -1162,6 +1547,8 @@ function _applyBossParams(dur) {
   if (boss.texture.freq) _ramp(_voices.texture.osc.frequency, boss.texture.freq, td);
   if (boss.texture.continuous) {
     _ramp(_voices.texture.gain.gain, boss.texture.gain, td);
+  } else {
+    _voices.texture.gain.gain.setValueAtTime(0, ctx.currentTime);
   }
 
   // Global filter
@@ -1177,6 +1564,13 @@ function _applyBossParams(dur) {
 
   _savedFilterHz = boss.filter;
   _savedLeadGain = boss.lead.gain;
+  _applyChoirParams(boss.choir, _currentWave, td);
+  _voices.choirLow.gain.gain.setValueAtTime(0, ctx.currentTime);
+  _voices.choirHigh.gain.gain.setValueAtTime(0, ctx.currentTime);
+  _currentHarmonicRoot = boss.bass.freq || boss.bass.freqs?.[0] || 110;
+  _chordIdx = 0;
+  _nextChordTime = ctx.currentTime + 0.05;
+  if (boss.progression) _applyProgressionStep(ctx.currentTime);
 }
 
 // --- Title music (proper melodic piece — captivating from moment 0) ---
@@ -1205,6 +1599,10 @@ function _applyTitleParams() {
   _ramp(_voices.texture.osc.frequency, 880, 0);
   _voices.texture.gain.gain.setValueAtTime(0, audioCtx.currentTime);
 
+  _applyChoirParams(TITLE_CHOIR, 0, 0);
+  _voices.choirLow.gain.gain.setValueAtTime(0, audioCtx.currentTime);
+  _voices.choirHigh.gain.gain.setValueAtTime(0, audioCtx.currentTime);
+
   // Open filter for bright, inviting sound
   _ramp(_globalFilter.frequency, 1800, 0);
   _ramp(_globalFilter.Q, 2.0, 0);
@@ -1215,7 +1613,10 @@ function _applyTitleParams() {
 
   // Start scheduler so lead arpeggio + texture pings play on title
   _leadIdx = 0;
+  _chordIdx = 0;
+  _currentHarmonicRoot = 110;
   _startScheduler();
+  _applyProgressionStep(audioCtx.currentTime);
 }
 
 // --- Game over music sequence ---
@@ -1228,6 +1629,8 @@ function _playGameOverSequence() {
   // Cut harmony and lead immediately
   _voices.harmony.gain.gain.setValueAtTime(0, ctx.currentTime);
   _voices.lead.gain.gain.setValueAtTime(0, ctx.currentTime);
+  _voices.choirLow.gain.gain.setValueAtTime(0, ctx.currentTime);
+  _voices.choirHigh.gain.gain.setValueAtTime(0, ctx.currentTime);
 
   // Texture: single burst at 200 Hz, 500ms
   _voices.texture.osc.frequency.setValueAtTime(200, ctx.currentTime);
@@ -1310,6 +1713,7 @@ export function setMusicIntensity(intensity, wave) {
 
   // If wave provided, use it for arc determination
   if (wave !== undefined && wave > 0) {
+    const previousWave = _currentWave;
     const newArcIdx = _getMusicArcIndex(wave);
     const arcChanged = newArcIdx !== _currentArcIdx || _gameState === 'title';
     _currentWave = wave;
@@ -1342,6 +1746,13 @@ export function setMusicIntensity(intensity, wave) {
       const harmGain = _lerp(arc.harmony.gain[0], arc.harmony.gain[1], p);
       const harmFaded = arc.harmony.fadeInWave && wave < arc.harmony.fadeInWave;
       _ramp(_voices.harmony.gain.gain, harmFaded ? 0 : harmGain, 0.5);
+
+      _applyChoirParams(arc.choir, wave, 0.5);
+    }
+
+    const activeArc = MUSIC_ARCS[_currentArcIdx];
+    if (wave !== previousWave && activeArc?.lead?.fadeInWave === wave) {
+      _triggerLeadSpotlight(activeArc.lead.revealBeats || 6, 0.01);
     }
 
     // Endless escalation
@@ -1391,6 +1802,7 @@ export function setMusicState(state) {
     _savedLeadGain = _voices.lead.gain.gain.value;
     _ramp(_globalFilter.frequency, _savedFilterHz * 0.7, 0.3);
     _ramp(_voices.lead.gain.gain, _savedLeadGain * 0.5, 0.3);
+    if (_choirFilter && _savedChoirCutoff) _ramp(_choirFilter.frequency, _savedChoirCutoff * 0.92, 0.3);
   } else if (state === 'power_select') {
     _gameState = 'power_select';
     _savedBpm = _currentBpm;
@@ -1402,6 +1814,7 @@ export function setMusicState(state) {
       _voices.lead.osc.frequency.setValueAtTime(arc.bass.freq * 2, ctx.currentTime);
     }
     _leadSilenced = false;
+    if (_choirFilter && _savedChoirCutoff) _ramp(_choirFilter.frequency, _savedChoirCutoff * 1.08, 0.4);
   } else if (state === 'playing') {
     // Restore from wave_break or power_select
     if (_gameState === 'wave_break') {
@@ -1412,12 +1825,14 @@ export function setMusicState(state) {
       // Restore lead arpeggio (scheduler will pick up new notes)
       _leadIdx = 0;
     }
+    if (_choirFilter && _savedChoirCutoff) _ramp(_choirFilter.frequency, _savedChoirCutoff, 0.5);
     _gameState = 'playing';
   } else if (state === 'boss_intro') {
     _gameState = 'boss_intro';
     // Drop to 40% gain, filter to 400 Hz
     _ramp(_outputGain.gain, _outputGain.gain.value * 0.4, 1.0);
     _ramp(_globalFilter.frequency, 400, 1.0);
+    if (_choirFilter) _ramp(_choirFilter.frequency, Math.max(350, _savedChoirCutoff * 0.75), 1.0);
   } else if (state === 'title') {
     // Transition back to title music (e.g. after game over → return to title)
     _isBossMusic = false;
@@ -1502,6 +1917,7 @@ let _bassSeqActive = false;
 // Get the bass sequencer's home note — the 5th/harmony of current key
 // For A minor: E3 = 165 Hz. For other arcs: the harmony frequency.
 function _getBassSeqHome() {
+  if (_currentHarmonicRoot > 0) return _freqWithSemitone(_currentHarmonicRoot, 7);
   if (_gameState === 'title') return 165; // E3
   if (_isBossMusic) {
     const boss = BOSS_THEMES[_getBossIndex(_currentWave)];
@@ -1580,6 +1996,9 @@ export function setPlayerActivity(speed, hpRatio) {
       if (_globalFilter && _savedFilterHz) {
         _ramp(_globalFilter.frequency, Math.max(300, _savedFilterHz - tension * 600), 0.3);
       }
+      if (_choirFilter && _savedChoirCutoff) {
+        _ramp(_choirFilter.frequency, Math.max(350, _savedChoirCutoff - tension * 220), 0.3);
+      }
       if (_lfo) {
         _ramp(_lfo.frequency, 0.3 + tension * 2.0, 0.3);
         _ramp(_lfoGain.gain, 0.03 + tension * 0.06, 0.3);
@@ -1589,6 +2008,13 @@ export function setPlayerActivity(speed, hpRatio) {
 
   // Track movement state for bass sequencer
   _playerSpeed = Math.min(1, speed);
+
+  if (_choirFilter && _savedChoirCutoff && (_gameState === 'playing' || _gameState === 'boss_fight')) {
+    const tension = 1 - _playerHpRatio;
+    const motionOpen = _playerSpeed * 120 + _actionHeat * 180;
+    const dangerClose = tension * 220;
+    _ramp(_choirFilter.frequency, Math.max(350, _savedChoirCutoff + motionOpen - dangerClose), 0.2);
+  }
 
   // Activate bass sequencer when player starts moving (if not already)
   if (_playerSpeed > 0.1 && !_bassSeqActive && _voices) {

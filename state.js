@@ -362,12 +362,22 @@ export function restoreRunState() {
   const saved = loadRunState();
   if (!saved) return false;
 
+  const inferredLoadout = saved.selectedLoadout
+    || (saved.isHardcore ? 'hardcore' : (
+      saved.player && saved.player.scoreMod === 1.3 ? 'glass_cannon'
+      : saved.player && saved.player.scoreMod === 0.8 ? 'tank'
+      : 'standard'
+    ));
+
+  // Resumed runs should keep the original loadout's dash tuning.
+  G.meta.selectedLoadout = inferredLoadout;
+
   // Start with a clean slate via resetGameState, then overlay saved values
   resetGameState();
 
-  // Wave break handler calls startNextWave() which does G.wave++,
-  // so set one less so the player replays the saved wave
-  G.wave = saved.wave - 1;
+  // Wave break handler calls startNextWave() which does G.wave++.
+  // Replay the saved wave only when quitting mid-wave; otherwise continue to the next one.
+  G.wave = saved.runWaves < saved.wave ? saved.wave - 1 : saved.wave;
   G.score = saved.score;
   G.elapsedTime = saved.elapsedTime || 0;
   G.runKills = saved.runKills || 0;
