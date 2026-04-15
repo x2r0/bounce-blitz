@@ -106,6 +106,9 @@ function playNoise(duration, volume, filterFreq, filterType, dest) {
 // Dash / bounce: short whoosh
 export function sfxDash() {
   const ctx = ensureCtx();
+  // Set dash state for bass sequencer (8th notes during dash)
+  _playerDashing = true;
+  setTimeout(() => { _playerDashing = false; }, 300);
   playNoise(0.12, 0.15, 3000, 'highpass');
   playTone(200, 'sine', 0.08, 0.1);
   // Frequency sweep up
@@ -528,6 +531,7 @@ function _reactToAction(action, intensity) {
 
   if (action === 'kill') {
     _actionHeat = Math.min(1, _actionHeat + 0.06);
+    _killQueue++; // Queue kill for bass sequencer bar variation
     _startHeatDecay();
     // Prominent in-key accent note based on enemy type
     const degree = intensity || 0;
@@ -721,6 +725,9 @@ function _destroyVoices() {
   if (_heatDecayTimer) { clearInterval(_heatDecayTimer); _heatDecayTimer = null; }
   _actionHeat = 0;
   _lastFilterBoost = 0;
+  _bassSeqActive = false;
+  _killQueue = 0;
+  _bassSeqIdx = 0;
   if (_voices) {
     _stopOsc(_voices.bass);
     _stopOsc(_voices.harmony);
@@ -824,6 +831,17 @@ function _schedulerTick() {
       }
       _bassFlip = !_bassFlip;
       _nextBassSwapTime += interval;
+    }
+  }
+
+  // Generative bass sequencer: rhythmic bass notes driven by player movement
+  if (_bassSeqActive && !isTitle && _voices.bass) {
+    // Quarter notes normally, 8th notes during dash
+    const bassSubdiv = _playerDashing ? 2 : 1;
+    const bassNoteDur = beat / bassSubdiv;
+    while (_nextBassSeqTime < now + ahead) {
+      _scheduleBassSeqNote(_nextBassSeqTime);
+      _nextBassSeqTime += bassNoteDur;
     }
   }
 }
@@ -1461,25 +1479,80 @@ export function notifyBossEvent(event, phase) {
   }
 }
 
-// --- Player activity tracking: movement → bass pulse, HP → tension ---
+// --- Generative bass sequencer + HP tension ---
+// Continuous rhythmic bass line that adapts to gameplay each bar:
+//   - Moving: quarter notes on root
+//   - Dashing: 8th notes (double speed)
+//   - Kills queue note variations for upcoming bars
+//   - Low HP: darker intervals
+
 let _playerHpRatio = 1;
-let _lastSpeed = 0;
+let _playerSpeed = 0;
+let _playerDashing = false;
+let _nextBassSeqTime = 0;
+let _bassSeqIdx = 0;
+let _bassBarPattern = [0, 0, 0, 0]; // scale degrees for 4-beat bar, 0 = root
+let _killQueue = 0; // accumulated kills since last bar reset
+let _bassSeqActive = false;
+
+// Build next bar's bass pattern based on recent gameplay events
+function _buildNextBassBar() {
+  const root = 0; // root note
+  if (_killQueue === 0) {
+    // No action: steady root
+    _bassBarPattern = [root, root, root, root];
+  } else if (_killQueue <= 2) {
+    // Light action: one variation note (drop to 7th on beat 4)
+    _bassBarPattern = [root, root, root, 5]; // 5th degree
+  } else if (_killQueue <= 5) {
+    // Moderate: two variations (root, root, 3rd, 5th)
+    _bassBarPattern = [root, root, 2, 4]; // minor 3rd, 5th
+  } else if (_killQueue <= 10) {
+    // Heavy: ascending walk (root, 2nd, 3rd, 5th)
+    _bassBarPattern = [root, 1, 2, 4];
+  } else {
+    // Intense: chromatic climb (root, b2, 3rd, 4th, 5th)
+    _bassBarPattern = [root, 1, 3, 4];
+  }
+  _killQueue = 0;
+}
+
+function _scheduleBassSeqNote(time) {
+  if (!_voices || !_voices.bass) return;
+  const root = _getArcRoot();
+  const degree = _bassBarPattern[_bassSeqIdx % 4];
+  const freq = _scaleFreq(root, degree, 1); // 1 octave up from root for clarity
+  const beat = _beatSec();
+  const noteDur = _playerDashing ? beat * 0.3 : beat * 0.5; // shorter staccato when dashing
+
+  // Play through the existing bass voice — modulate its frequency rhythmically
+  _voices.bass.osc.frequency.setValueAtTime(freq, time);
+
+  // Gain envelope: note on → sustain → note off (creates rhythmic pulse)
+  const tension = 1 - _playerHpRatio;
+  const vol = 0.14 + tension * 0.06;
+  _voices.bass.gain.gain.setValueAtTime(vol, time);
+  _voices.bass.gain.gain.setValueAtTime(vol, time + noteDur * 0.8);
+  _voices.bass.gain.gain.linearRampToValueAtTime(vol * 0.3, time + noteDur);
+
+  _bassSeqIdx++;
+  // Build new pattern at start of each bar (every 4 beats)
+  if (_bassSeqIdx % 4 === 0) {
+    _buildNextBassBar();
+  }
+}
 
 export function setPlayerActivity(speed, hpRatio) {
-  if (!_musicPlaying || !_voices || !audioCtx) return;
-  if (_gameState !== 'playing' && _gameState !== 'boss_fight') return;
+  if (!_musicPlaying || !audioCtx) return;
 
-  // HP tension: lower HP = darker music (filter closes, bass heavier, pulse anxious)
+  // HP tension: lower HP = darker music
   if (hpRatio !== undefined) {
     const prevRatio = _playerHpRatio;
     _playerHpRatio = Math.max(0, Math.min(1, hpRatio));
-    if (Math.abs(prevRatio - _playerHpRatio) > 0.05) {
-      const tension = 1 - _playerHpRatio; // 0 = full HP, 1 = near death
+    if (Math.abs(prevRatio - _playerHpRatio) > 0.05 && _voices) {
+      const tension = 1 - _playerHpRatio;
       if (_globalFilter && _savedFilterHz) {
         _ramp(_globalFilter.frequency, Math.max(300, _savedFilterHz - tension * 600), 0.3);
-      }
-      if (_voices.bass) {
-        _ramp(_voices.bass.gain.gain, 0.12 + tension * 0.08, 0.3);
       }
       if (_lfo) {
         _ramp(_lfo.frequency, 0.3 + tension * 2.0, 0.3);
@@ -1488,29 +1561,17 @@ export function setPlayerActivity(speed, hpRatio) {
     }
   }
 
-  // Movement → foundational bass pulse modulation
-  // Speed controls the bass LFO rate and gain: still=drone, moving=rhythmic pulse
-  const s = Math.min(1, speed);
-  if (Math.abs(s - _lastSpeed) > 0.05) {
-    _lastSpeed = s;
-    if (_voices.bass) {
-      // Bass gain increases with movement (more presence when active)
-      const baseGain = _isBossMusic ? 0.16 : 0.12;
-      _ramp(_voices.bass.gain.gain, baseGain + s * 0.06, 0.1);
-    }
-    // Bass LFO rate: still=slow drone (0.2Hz), fast=rhythmic pulse (4Hz)
-    if (_voices.bass && _voices.bass.osc) {
-      const baseLfoRate = 0.2 + s * 3.8;
-      // Use the main LFO to pulse the bass rhythmically
-      if (_lfo && _gameState === 'playing') {
-        const arcLfoRate = _lfo.frequency.value;
-        _ramp(_lfo.frequency, Math.max(arcLfoRate, baseLfoRate), 0.08);
-      }
-    }
-    // Harmony opens up with movement (wider, more present)
-    if (_voices.harmony) {
-      const harmBase = _isBossMusic ? 0.08 : 0.06;
-      _ramp(_voices.harmony.gain.gain, harmBase + s * 0.04, 0.1);
-    }
+  // Track movement state for bass sequencer
+  _playerSpeed = Math.min(1, speed);
+
+  // Activate bass sequencer when player starts moving (if not already)
+  if (_playerSpeed > 0.1 && !_bassSeqActive && _voices) {
+    _bassSeqActive = true;
+    _nextBassSeqTime = audioCtx.currentTime;
+    _bassSeqIdx = 0;
+    _buildNextBassBar();
+  }
+  if (_playerSpeed <= 0.05) {
+    _bassSeqActive = false;
   }
 }

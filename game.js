@@ -2699,4 +2699,15 @@ if (savedSettings) {
 platformSDK.loadingProgress(1);
 platformSDK.loadingDone();
 G.state = STATE.TITLE;
+
+// Start title music on very first user gesture (browsers require gesture for AudioContext)
+function _onFirstGesture() {
+  resumeAudio();
+  startMusic();
+  document.removeEventListener('pointerdown', _onFirstGesture);
+  document.removeEventListener('keydown', _onFirstGesture);
+}
+document.addEventListener('pointerdown', _onFirstGesture, { once: true });
+document.addEventListener('keydown', _onFirstGesture, { once: true });
+
 requestAnimationFrame(gameLoop);
