@@ -9,6 +9,8 @@ let sfxGain = null;
 let musicGain = null;
 let _muted = false;
 let _volume = 0.5;
+let _musicVolume = 0.5;
+let _sfxVolume = 0.5;
 
 function ensureCtx() {
   if (audioCtx) return audioCtx;
@@ -17,10 +19,10 @@ function ensureCtx() {
   masterGain.gain.value = _volume;
   masterGain.connect(audioCtx.destination);
   sfxGain = audioCtx.createGain();
-  sfxGain.gain.value = 1.0;
+  sfxGain.gain.value = _sfxVolume;
   sfxGain.connect(masterGain);
   musicGain = audioCtx.createGain();
-  musicGain.gain.value = 0.5;
+  musicGain.gain.value = _musicVolume;
   musicGain.connect(masterGain);
   return audioCtx;
 }
@@ -41,6 +43,20 @@ export function toggleMute() {
   if (masterGain) masterGain.gain.value = _muted ? 0 : _volume;
   return _muted;
 }
+
+export function setMusicVolume(v) {
+  _musicVolume = Math.max(0, Math.min(1, v));
+  if (musicGain) musicGain.gain.value = _musicVolume;
+}
+
+export function setSfxVolume(v) {
+  _sfxVolume = Math.max(0, Math.min(1, v));
+  if (sfxGain) sfxGain.gain.value = _sfxVolume;
+}
+
+export function getMusicVolume() { return _musicVolume; }
+export function getSfxVolume() { return _sfxVolume; }
+export function isMuted() { return _muted; }
 
 // --- Helper: play a tone ---
 function playTone(freq, type, duration, volume, dest) {
