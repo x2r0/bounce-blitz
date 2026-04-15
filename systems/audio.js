@@ -1534,7 +1534,7 @@ function _scheduleBassSeqNote(time, isRootFill) {
   // Root fills (during dash) always play the root at same octave
   // Pattern notes play the bar's degree sequence
   const degree = isRootFill ? 0 : _bassBarPattern[_bassSeqIdx % 4];
-  const freq = _scaleFreq(root, degree, 0); // octave 0 = bass register
+  const freq = _scaleFreq(root, degree, 1); // octave 1 = E3/A3 register (~165-220 Hz)
   const noteDur = isRootFill ? beat * 0.25 : beat * 0.45; // fills are shorter staccato
 
   // Modulate the bass voice frequency rhythmically
