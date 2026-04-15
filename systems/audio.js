@@ -1331,6 +1331,11 @@ export function setBossMusic(isBoss) {
 
 // New: notify music system of game state changes
 export function setMusicState(state) {
+  if (state === 'title' && (!_voices || !_musicPlaying)) {
+    // Music was destroyed (e.g. game over sequence) — restart for title
+    startMusic();
+    return;
+  }
   if (!_voices || !_musicPlaying) return;
   const ctx = ensureCtx();
 
@@ -1368,6 +1373,11 @@ export function setMusicState(state) {
     // Drop to 40% gain, filter to 400 Hz
     _ramp(_outputGain.gain, _outputGain.gain.value * 0.4, 1.0);
     _ramp(_globalFilter.frequency, 400, 1.0);
+  } else if (state === 'title') {
+    // Transition back to title music (e.g. after game over → return to title)
+    _isBossMusic = false;
+    _stopScheduler();
+    _applyTitleParams();
   } else if (state === 'game_over') {
     _playGameOverSequence();
   }
@@ -1428,47 +1438,56 @@ export function notifyBossEvent(event, phase) {
   }
 }
 
-// --- Player activity tracking: movement → bass rhythm, HP → tension ---
-let _lastMoveBassTime = 0;
+// --- Player activity tracking: movement → bass pulse, HP → tension ---
 let _playerHpRatio = 1;
+let _lastSpeed = 0;
 
 export function setPlayerActivity(speed, hpRatio) {
   if (!_musicPlaying || !_voices || !audioCtx) return;
-  const now = audioCtx.currentTime;
+  if (_gameState !== 'playing' && _gameState !== 'boss_fight') return;
 
-  // HP tension: lower HP = darker music (filter closes, bass gets louder)
+  // HP tension: lower HP = darker music (filter closes, bass heavier, pulse anxious)
   if (hpRatio !== undefined) {
     const prevRatio = _playerHpRatio;
     _playerHpRatio = Math.max(0, Math.min(1, hpRatio));
-    // Only update music params when HP changes significantly
-    if (Math.abs(prevRatio - _playerHpRatio) > 0.05 && _gameState === 'playing') {
+    if (Math.abs(prevRatio - _playerHpRatio) > 0.05) {
       const tension = 1 - _playerHpRatio; // 0 = full HP, 1 = near death
-      // Filter darkens with low HP
-      const hpFilterPenalty = tension * 600;
       if (_globalFilter && _savedFilterHz) {
-        _ramp(_globalFilter.frequency, Math.max(300, _savedFilterHz - hpFilterPenalty), 0.3);
+        _ramp(_globalFilter.frequency, Math.max(300, _savedFilterHz - tension * 600), 0.3);
       }
-      // Bass gets heavier at low HP
       if (_voices.bass) {
-        const bassBoost = tension * 0.06;
-        _ramp(_voices.bass.gain.gain, 0.12 + bassBoost, 0.3);
+        _ramp(_voices.bass.gain.gain, 0.12 + tension * 0.08, 0.3);
       }
-      // LFO speeds up (anxious pulse) at low HP
       if (_lfo) {
-        _ramp(_lfo.frequency, 0.3 + tension * 1.5, 0.3);
+        _ramp(_lfo.frequency, 0.3 + tension * 2.0, 0.3);
+        _ramp(_lfoGain.gain, 0.03 + tension * 0.06, 0.3);
       }
     }
   }
 
-  // Movement → rhythmic bass notes (only during gameplay, throttled)
-  if (speed > 0.3 && _gameState === 'playing' && (now - _lastMoveBassTime) > 0.18) {
-    _lastMoveBassTime = now;
-    const root = _getArcRoot();
-    // Faster movement = louder/higher bass notes
-    const vol = 0.04 + Math.min(speed, 1) * 0.06;
-    const octave = speed > 0.7 ? 2 : 1;
-    // Alternate between root and fifth for rhythmic interest
-    const degree = (_lastMoveBassTime * 3 | 0) % 2 === 0 ? 0 : 4;
-    _playMusicAccent(_scaleFreq(root, degree, octave), 0.08, vol, 0, true);
+  // Movement → foundational bass pulse modulation
+  // Speed controls the bass LFO rate and gain: still=drone, moving=rhythmic pulse
+  const s = Math.min(1, speed);
+  if (Math.abs(s - _lastSpeed) > 0.05) {
+    _lastSpeed = s;
+    if (_voices.bass) {
+      // Bass gain increases with movement (more presence when active)
+      const baseGain = _isBossMusic ? 0.16 : 0.12;
+      _ramp(_voices.bass.gain.gain, baseGain + s * 0.06, 0.1);
+    }
+    // Bass LFO rate: still=slow drone (0.2Hz), fast=rhythmic pulse (4Hz)
+    if (_voices.bass && _voices.bass.osc) {
+      const baseLfoRate = 0.2 + s * 3.8;
+      // Use the main LFO to pulse the bass rhythmically
+      if (_lfo && _gameState === 'playing') {
+        const arcLfoRate = _lfo.frequency.value;
+        _ramp(_lfo.frequency, Math.max(arcLfoRate, baseLfoRate), 0.08);
+      }
+    }
+    // Harmony opens up with movement (wider, more present)
+    if (_voices.harmony) {
+      const harmBase = _isBossMusic ? 0.08 : 0.06;
+      _ramp(_voices.harmony.gain.gain, harmBase + s * 0.04, 0.1);
+    }
   }
 }

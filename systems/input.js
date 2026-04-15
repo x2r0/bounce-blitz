@@ -19,7 +19,7 @@ import { POWER_DEFS, getPlayerPower } from './powers.js';
 import { isFreeDash } from './lootcrate.js';
 import { killEnemy } from '../entities/enemy.js';
 import { dist } from '../utils.js';
-import { resumeAudio, sfxDash, sfxUIClick, sfxCardPick, startMusic, stopMusic, setBossMusic } from './audio.js';
+import { resumeAudio, sfxDash, sfxUIClick, sfxCardPick, startMusic, stopMusic, setBossMusic, setMusicState } from './audio.js';
 import { saveRunState, hasSavedRun, clearRunState } from './save.js';
 import { openGlossary, closeGlossary, glossaryInput, glossaryClickTest, glossaryDetailWheel } from './glossary.js';
 
@@ -30,7 +30,7 @@ function quitRun() {
   } else {
     saveRunState(G);
   }
-  stopMusic();
+  setMusicState('title'); // Keep music alive, transition to title ambience
   G.state = STATE.TITLE;
 }
 
@@ -74,6 +74,7 @@ function handleInput(x, y) {
   if (G.state === STATE.TITLE) {
     if (G._titleTransitioning) return;
     resumeAudio();
+    startMusic(); // Start title music immediately on first interaction
     G._titleTransitioning = true;
     import('../game.js').then(m => m.startTransition(() => {
       G._titleTransitioning = false;
@@ -633,6 +634,7 @@ export function setupInput() {
     // --- Title screen ---
     if (G.state === STATE.TITLE) {
       resumeAudio();
+      startMusic(); // Start title music on first keypress
       if (key === 'g') { sfxUIClick(); openGlossary(STATE.TITLE); e.preventDefault(); return; }
       if (key === 'u') { sfxUIClick(); G.state = STATE.UPGRADES; G.upgradeCursor = 0; e.preventDefault(); return; }
       if (key === 'l') { sfxUIClick(); G.state = STATE.LOADOUT; G.loadoutCursor = 0; e.preventDefault(); return; }
