@@ -5,7 +5,7 @@ import { rand, dist, lerp, formatScore, formatTime } from './utils.js';
 import { events } from './eventbus.js';
 import { G } from './state.js';
 import { ctx, gridCanvas, drawGlowText } from './canvas.js';
-import { hasSavedRun, clearRunState } from './systems/save.js';
+import { hasSavedRun, clearRunState, loadSettings } from './systems/save.js';
 
 import { updatePlayer, damagePlayer, drawPlayer } from './entities/player.js';
 import { spawnEnemy, updateEnemies, killEnemy, hitEnemy, drawEnemies } from './entities/enemy.js';
@@ -58,7 +58,8 @@ import {
   sfxBossDefeat, sfxGameOver, sfxShardCollect, sfxEvolutionUnlock,
   sfxUIClick, sfxMultiPop, sfxGravityBomb,
   startMusic, stopMusic, setMusicIntensity, setBossMusic, setMusicState,
-  setPlayerActivity
+  setPlayerActivity,
+  getMusicVolume, getSfxVolume, isMuted, setMusicVolume, setSfxVolume, toggleMute
 } from './systems/audio.js';
 import platformSDK from './platform-sdk.js';
 import { setupCrazyGames } from './platform-crazygames.js';
@@ -827,6 +828,7 @@ function update(dt) {
   if (G.state === STATE.UPGRADES) return;
   if (G.state === STATE.LOADOUT) return;
   if (G.state === STATE.GLOSSARY) return;
+  if (G.state === STATE.SETTINGS) return;
 
   if (G.state === STATE.POWER_SELECT) {
     // Animate card pick
@@ -1225,7 +1227,7 @@ function drawTitleScreen() {
   ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
   ctx.fillStyle = '#555555';
   ctx.fillText('WASD to move · Space to bounce · P to pause', W / 2, H * 0.68);
-  ctx.fillText('U — Upgrades · L — Loadout · G — Glossary', W / 2, H * 0.74);
+  ctx.fillText('U — Upgrades · L — Loadout · G — Glossary · S — Settings', W / 2, H * 0.74);
   ctx.restore();
 
   // Selected loadout
@@ -1235,6 +1237,179 @@ function drawTitleScreen() {
   ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
   ctx.fillStyle = '#448888';
   ctx.fillText('Loadout: ' + loadout.name, W / 2, H * 0.80);
+  ctx.restore();
+
+  ctx.restore();
+}
+
+// --- Settings Screen ---
+function drawSettingsScreen() {
+  ctx.save();
+  ctx.fillStyle = '#0a0a0f';
+  ctx.fillRect(0, 0, W, H);
+  ctx.globalAlpha = 0.3;
+  ctx.drawImage(gridCanvas, 0, 0);
+  ctx.globalAlpha = 1;
+
+  // Title
+  drawGlowText('SETTINGS', W / 2, 80, 'bold 36px ' + FONT, '#ffffff', '#00ffff', 10);
+
+  // Layout
+  const sliderW = 300, sliderH = 12, knobR = 10;
+  const labelX = W / 2 - sliderW / 2;
+  const sliderX = labelX;
+  const startY = 180;
+  const rowH = 90;
+  const cursor = G._settingsCursor;
+
+  const musicVol = getMusicVolume();
+  const sfxVol = getSfxVolume();
+  const muted = isMuted();
+
+  // Store slider rects for click detection
+  G._settingsSliderRects = [];
+
+  // --- Music Volume ---
+  const musicY = startY;
+  const musicSelected = cursor === 0;
+  ctx.save();
+  ctx.font = 'bold 16px ' + FONT;
+  ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+  ctx.fillStyle = musicSelected ? '#00ffff' : '#aaaacc';
+  ctx.fillText('Music Volume', sliderX, musicY);
+  ctx.font = '14px ' + FONT;
+  ctx.textAlign = 'right';
+  ctx.fillText(Math.round(musicVol * 100) + '%', sliderX + sliderW, musicY);
+  ctx.restore();
+  // Track
+  const musicTrackY = musicY + 30;
+  ctx.save();
+  ctx.fillStyle = '#222233';
+  ctx.beginPath();
+  ctx.roundRect(sliderX, musicTrackY - sliderH / 2, sliderW, sliderH, sliderH / 2);
+  ctx.fill();
+  // Fill
+  const musicFillW = musicVol * sliderW;
+  ctx.fillStyle = musicSelected ? '#00dddd' : '#007788';
+  ctx.beginPath();
+  ctx.roundRect(sliderX, musicTrackY - sliderH / 2, musicFillW, sliderH, sliderH / 2);
+  ctx.fill();
+  // Knob
+  const musicKnobX = sliderX + musicFillW;
+  if (musicSelected) {
+    ctx.shadowColor = '#00ffff';
+    ctx.shadowBlur = 12;
+  }
+  ctx.fillStyle = musicSelected ? '#00ffff' : '#aaaacc';
+  ctx.beginPath();
+  ctx.arc(musicKnobX, musicTrackY, knobR, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.shadowBlur = 0;
+  ctx.restore();
+  G._settingsSliderRects.push({ x: sliderX, y: musicTrackY - 16, w: sliderW, h: 32 });
+
+  // --- SFX Volume ---
+  const sfxY = startY + rowH;
+  const sfxSelected = cursor === 1;
+  ctx.save();
+  ctx.font = 'bold 16px ' + FONT;
+  ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+  ctx.fillStyle = sfxSelected ? '#00ffff' : '#aaaacc';
+  ctx.fillText('SFX Volume', sliderX, sfxY);
+  ctx.font = '14px ' + FONT;
+  ctx.textAlign = 'right';
+  ctx.fillText(Math.round(sfxVol * 100) + '%', sliderX + sliderW, sfxY);
+  ctx.restore();
+  // Track
+  const sfxTrackY = sfxY + 30;
+  ctx.save();
+  ctx.fillStyle = '#222233';
+  ctx.beginPath();
+  ctx.roundRect(sliderX, sfxTrackY - sliderH / 2, sliderW, sliderH, sliderH / 2);
+  ctx.fill();
+  // Fill
+  const sfxFillW = sfxVol * sliderW;
+  ctx.fillStyle = sfxSelected ? '#00dddd' : '#007788';
+  ctx.beginPath();
+  ctx.roundRect(sliderX, sfxTrackY - sliderH / 2, sfxFillW, sliderH, sliderH / 2);
+  ctx.fill();
+  // Knob
+  const sfxKnobX = sliderX + sfxFillW;
+  if (sfxSelected) {
+    ctx.shadowColor = '#00ffff';
+    ctx.shadowBlur = 12;
+  }
+  ctx.fillStyle = sfxSelected ? '#00ffff' : '#aaaacc';
+  ctx.beginPath();
+  ctx.arc(sfxKnobX, sfxTrackY, knobR, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.shadowBlur = 0;
+  ctx.restore();
+  G._settingsSliderRects.push({ x: sliderX, y: sfxTrackY - 16, w: sliderW, h: 32 });
+
+  // --- Mute Toggle ---
+  const muteY = startY + rowH * 2 + 10;
+  const muteSelected = cursor === 2;
+  const muteBtnW = 200, muteBtnH = 40;
+  const muteBtnX = W / 2 - muteBtnW / 2;
+  const muteHover = muteSelected || G._settingsHoverMute;
+  ctx.save();
+  if (muteHover) {
+    ctx.shadowColor = muted ? '#ff4466' : '#00ffaa';
+    ctx.shadowBlur = 14;
+  }
+  ctx.fillStyle = muted
+    ? (muteHover ? '#4f1f1f' : '#3a1a1a')
+    : (muteHover ? '#1f4f35' : '#1a3a2a');
+  ctx.beginPath();
+  ctx.roundRect(muteBtnX, muteY, muteBtnW, muteBtnH, 6);
+  ctx.fill();
+  ctx.strokeStyle = muted
+    ? (muteHover ? '#ff6688' : '#ff4466')
+    : (muteHover ? '#44ffcc' : '#00ffaa');
+  ctx.lineWidth = muteHover ? 3 : 2;
+  ctx.stroke();
+  ctx.shadowBlur = 0;
+  ctx.font = 'bold 16px ' + FONT;
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillStyle = muted
+    ? (muteHover ? '#ff6688' : '#ff4466')
+    : (muteHover ? '#44ffcc' : '#00ffaa');
+  ctx.fillText(muted ? 'Unmute (M)' : 'Mute (M)', muteBtnX + muteBtnW / 2, muteY + muteBtnH / 2);
+  ctx.restore();
+  G._settingsMuteBtnRect = { x: muteBtnX, y: muteY, w: muteBtnW, h: muteBtnH };
+
+  // --- Back Button ---
+  const backY = muteY + muteBtnH + 40;
+  const backBtnW = 160, backBtnH = 40;
+  const backBtnX = W / 2 - backBtnW / 2;
+  const backHover = G._settingsHoverBack;
+  ctx.save();
+  if (backHover) {
+    ctx.shadowColor = '#aaaaff';
+    ctx.shadowBlur = 14;
+  }
+  ctx.fillStyle = backHover ? '#2a2a44' : '#1a1a2e';
+  ctx.beginPath();
+  ctx.roundRect(backBtnX, backY, backBtnW, backBtnH, 6);
+  ctx.fill();
+  ctx.strokeStyle = backHover ? '#aaaaff' : '#6666aa';
+  ctx.lineWidth = backHover ? 3 : 2;
+  ctx.stroke();
+  ctx.shadowBlur = 0;
+  ctx.font = 'bold 16px ' + FONT;
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillStyle = backHover ? '#aaaaff' : '#6666aa';
+  ctx.fillText('Back (Esc)', backBtnX + backBtnW / 2, backY + backBtnH / 2);
+  ctx.restore();
+  G._settingsBackBtnRect = { x: backBtnX, y: backY, w: backBtnW, h: backBtnH };
+
+  // Hint text
+  ctx.save();
+  ctx.font = '13px ' + FONT;
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillStyle = '#444466';
+  ctx.fillText('W/S or Up/Down to select · A/D or Left/Right to adjust', W / 2, H - 50);
   ctx.restore();
 
   ctx.restore();
@@ -1777,6 +1952,7 @@ function draw() {
   if (G.state === STATE.LOADOUT) { drawLoadoutScreen(); return; }
   if (G.state === STATE.RUN_SUMMARY) { drawRunSummary(); return; }
   if (G.state === STATE.GLOSSARY) { drawGlossaryScreen(); return; }
+  if (G.state === STATE.SETTINGS) { drawSettingsScreen(); return; }
 
   ctx.save();
   ctx.translate(G.shakeX, G.shakeY);
@@ -2338,12 +2514,12 @@ function draw() {
     G._pauseResumeBtnRect = { x: resumeBtnX, y: resumeBtnY, w: btnW, h: btnH };
     G._pauseQuitBtnRect = { x: quitBtnX, y: quitBtnY, w: btnW, h: btnH };
 
-    // Glossary hint
+    // Bottom hints
     ctx.save();
     ctx.font = '14px ' + FONT;
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
     ctx.fillStyle = '#555555';
-    ctx.fillText('G — Glossary', W / 2, btnY + btnH + 16);
+    ctx.fillText('S — Settings · G — Glossary', W / 2, btnY + btnH + 16);
     ctx.restore();
 
     ctx.restore();
@@ -2513,6 +2689,13 @@ platformSDK.init();
 platformSDK.loadingProgress(0.5);
 setupInput();
 setupGlossaryTracking();
+// Restore saved audio settings
+const savedSettings = loadSettings();
+if (savedSettings) {
+  if (typeof savedSettings.musicVolume === 'number') setMusicVolume(savedSettings.musicVolume);
+  if (typeof savedSettings.sfxVolume === 'number') setSfxVolume(savedSettings.sfxVolume);
+  if (savedSettings.muted) toggleMute();
+}
 platformSDK.loadingProgress(1);
 platformSDK.loadingDone();
 G.state = STATE.TITLE;

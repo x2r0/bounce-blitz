@@ -155,6 +155,15 @@ export const G = {
   ambientShapes: [],           // persistent slow-moving background shapes per arc
   gridCrossfade: 0,            // 0 = show new grid only, >0 = blending old/new
   gridCrossfadeTimer: 0,       // timer for grid crossfade during transitions
+
+  // --- Settings screen ---
+  _settingsPrevState: null,      // which state to return to (TITLE or PAUSED)
+  _settingsCursor: 0,            // 0 = music, 1 = sfx, 2 = mute
+  _settingsSliderRects: [],      // [{x,y,w,h}] for click detection on sliders
+  _settingsMuteBtnRect: null,    // {x,y,w,h} for mute toggle button
+  _settingsBackBtnRect: null,    // {x,y,w,h} for back button
+  _settingsHoverBack: false,
+  _settingsHoverMute: false,
 };
 
 export function resetGameState() {

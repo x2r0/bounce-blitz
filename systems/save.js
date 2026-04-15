@@ -3,6 +3,7 @@
 const STORAGE_KEY = 'bounceblitz_highscore';
 const HARDCORE_STORAGE_KEY = 'bounceblitz_hardcore_highscore';
 const RUN_SAVE_KEY = 'bounceblitz_savedrun';
+const SETTINGS_KEY = 'bounceblitz_settings';
 
 export function loadHighScore() {
   return parseInt(localStorage.getItem(STORAGE_KEY)) || 0;
@@ -64,4 +65,18 @@ export function loadRunState() {
 
 export function clearRunState() {
   localStorage.removeItem(RUN_SAVE_KEY);
+}
+
+// --- Audio settings persistence ---
+
+export function loadSettings() {
+  try {
+    const raw = localStorage.getItem(SETTINGS_KEY);
+    if (raw) return JSON.parse(raw);
+  } catch (e) { /* ignore corrupt data */ }
+  return null;
+}
+
+export function saveSettings(settings) {
+  localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
 }

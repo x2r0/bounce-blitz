@@ -19,8 +19,9 @@ import { POWER_DEFS, getPlayerPower } from './powers.js';
 import { isFreeDash } from './lootcrate.js';
 import { killEnemy } from '../entities/enemy.js';
 import { dist } from '../utils.js';
-import { resumeAudio, sfxDash, sfxUIClick, sfxCardPick, startMusic, stopMusic, setBossMusic, setMusicState } from './audio.js';
-import { saveRunState, hasSavedRun, clearRunState } from './save.js';
+import { resumeAudio, sfxDash, sfxUIClick, sfxCardPick, startMusic, stopMusic, setBossMusic, setMusicState,
+  getMusicVolume, getSfxVolume, isMuted, setMusicVolume, setSfxVolume, toggleMute } from './audio.js';
+import { saveRunState, hasSavedRun, clearRunState, saveSettings } from './save.js';
 import { openGlossary, closeGlossary, glossaryInput, glossaryClickTest, glossaryDetailWheel } from './glossary.js';
 
 function quitRun() {
@@ -47,6 +48,35 @@ function canvasCoords(cx, cy) {
   return { x: (cx - rect.left) / rect.width * W, y: (cy - rect.top) / rect.height * H };
 }
 
+function openSettings(fromState) {
+  G._settingsPrevState = fromState;
+  G._settingsCursor = 0;
+  G._settingsHoverBack = false;
+  G._settingsHoverMute = false;
+  G.state = STATE.SETTINGS;
+}
+
+function closeSettings() {
+  // Persist current audio state
+  saveSettings({ musicVolume: getMusicVolume(), sfxVolume: getSfxVolume(), muted: isMuted() });
+  G.state = G._settingsPrevState || STATE.TITLE;
+}
+
+function settingsAdjust(delta) {
+  const step = 0.05;
+  if (G._settingsCursor === 0) {
+    setMusicVolume(Math.round((getMusicVolume() + delta * step) * 100) / 100);
+  } else if (G._settingsCursor === 1) {
+    setSfxVolume(Math.round((getSfxVolume() + delta * step) * 100) / 100);
+    sfxUIClick(); // preview SFX at new volume
+  }
+}
+
+function settingsToggleMute() {
+  toggleMute();
+  saveSettings({ musicVolume: getMusicVolume(), sfxVolume: getSfxVolume(), muted: isMuted() });
+}
+
 // Mode select card positions (must match draw code)
 const MODE_CARD_W = 260, MODE_CARD_H = 280;
 const MODE_STORY_X = 260 - MODE_CARD_W / 2, MODE_STORY_Y = 320 - MODE_CARD_H / 2;
@@ -65,6 +95,26 @@ function confirmModeSelect(cursor) {
 }
 
 function handleInput(x, y) {
+  // Settings screen clicks
+  if (G.state === STATE.SETTINGS) {
+    if (hitTest(x, y, G._settingsBackBtnRect)) { sfxUIClick(); closeSettings(); return; }
+    if (hitTest(x, y, G._settingsMuteBtnRect)) { sfxUIClick(); settingsToggleMute(); return; }
+    // Slider clicks
+    if (G._settingsSliderRects) {
+      for (let i = 0; i < G._settingsSliderRects.length; i++) {
+        const r = G._settingsSliderRects[i];
+        if (hitTest(x, y, r)) {
+          const val = Math.max(0, Math.min(1, (x - r.x) / r.w));
+          if (i === 0) setMusicVolume(val);
+          else setSfxVolume(val);
+          G._settingsCursor = i;
+          saveSettings({ musicVolume: getMusicVolume(), sfxVolume: getSfxVolume(), muted: isMuted() });
+          return;
+        }
+      }
+    }
+    return;
+  }
   // Pause menu button clicks
   if (G.state === STATE.PAUSED) {
     if (hitTest(x, y, G._pauseResumeBtnRect)) { sfxUIClick(); resumeFromPause(); return; }
@@ -490,6 +540,7 @@ export function setupInput() {
     const p = canvasCoords(e.clientX, e.clientY);
     G.mouseX = p.x;
     G.mouseY = p.y;
+    if (G.state === STATE.SETTINGS) { handleInput(p.x, p.y); return; }
     if (G.state === STATE.GLOSSARY) { glossaryClickTest(p.x, p.y); return; }
     if (G.state === STATE.POWER_SELECT) { handleCardClick(p.x, p.y); return; }
     if (G.state === STATE.MODE_SELECT) {
@@ -514,6 +565,19 @@ export function setupInput() {
     G.mouseY = p.y;
     if (G.state === STATE.MODE_SELECT) {
       G.modeSelectCursor = Math.max(0, modeSelectCardAt(p.x, p.y));
+      return;
+    }
+    if (G.state === STATE.SETTINGS) {
+      G._settingsHoverBack = hitTest(p.x, p.y, G._settingsBackBtnRect);
+      G._settingsHoverMute = hitTest(p.x, p.y, G._settingsMuteBtnRect);
+      // Slider drag: if mouse is down over slider, update value
+      if (G._settingsSliderRects) {
+        for (let i = 0; i < G._settingsSliderRects.length; i++) {
+          if (hitTest(p.x, p.y, G._settingsSliderRects[i])) {
+            G._settingsCursor = i;
+          }
+        }
+      }
       return;
     }
     if (G.state === STATE.PAUSED) {
@@ -631,6 +695,19 @@ export function setupInput() {
       return;
     }
 
+    // --- Settings screen ---
+    if (G.state === STATE.SETTINGS) {
+      if (key === 'escape' || key === 'backspace') { sfxUIClick(); closeSettings(); e.preventDefault(); return; }
+      if (key === 'arrowup' || key === 'w') { sfxUIClick(); G._settingsCursor = Math.max(0, G._settingsCursor - 1); e.preventDefault(); return; }
+      if (key === 'arrowdown' || key === 's') { sfxUIClick(); G._settingsCursor = Math.min(2, G._settingsCursor + 1); e.preventDefault(); return; }
+      if (key === 'arrowleft' || key === 'a') { settingsAdjust(-1); e.preventDefault(); return; }
+      if (key === 'arrowright' || key === 'd') { settingsAdjust(1); e.preventDefault(); return; }
+      if ((key === 'enter' || key === ' ') && G._settingsCursor === 2) { sfxUIClick(); settingsToggleMute(); e.preventDefault(); return; }
+      if (key === 'm') { sfxUIClick(); settingsToggleMute(); e.preventDefault(); return; }
+      e.preventDefault();
+      return;
+    }
+
     // --- Title screen ---
     if (G.state === STATE.TITLE) {
       resumeAudio();
@@ -638,6 +715,7 @@ export function setupInput() {
       if (key === 'g') { sfxUIClick(); openGlossary(STATE.TITLE); e.preventDefault(); return; }
       if (key === 'u') { sfxUIClick(); G.state = STATE.UPGRADES; G.upgradeCursor = 0; e.preventDefault(); return; }
       if (key === 'l') { sfxUIClick(); G.state = STATE.LOADOUT; G.loadoutCursor = 0; e.preventDefault(); return; }
+      if (key === 's') { sfxUIClick(); openSettings(STATE.TITLE); e.preventDefault(); return; }
       // Continue saved run (with fade)
       if (key === 'c' && hasSavedRun()) {
         if (G._titleTransitioning) { e.preventDefault(); return; }
@@ -765,6 +843,14 @@ export function setupInput() {
     if (key === 'g' && G.state === STATE.PAUSED) {
       sfxUIClick();
       openGlossary(STATE.PAUSED);
+      e.preventDefault();
+      return;
+    }
+
+    // --- Settings from pause (S while paused) ---
+    if (key === 's' && G.state === STATE.PAUSED) {
+      sfxUIClick();
+      openSettings(STATE.PAUSED);
       e.preventDefault();
       return;
     }
