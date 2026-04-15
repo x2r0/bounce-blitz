@@ -835,13 +835,17 @@ function _schedulerTick() {
   }
 
   // Generative bass sequencer: rhythmic bass notes driven by player movement
+  // Pattern plays at quarter-note rate. Dash inserts root 8ths between quarters.
   if (_bassSeqActive && !isTitle && _voices.bass) {
-    // Quarter notes normally, 8th notes during dash
-    const bassSubdiv = _playerDashing ? 2 : 1;
-    const bassNoteDur = beat / bassSubdiv;
+    const halfBeat = beat / 2;
     while (_nextBassSeqTime < now + ahead) {
-      _scheduleBassSeqNote(_nextBassSeqTime);
-      _nextBassSeqTime += bassNoteDur;
+      // Quarter note: play the pattern note
+      _scheduleBassSeqNote(_nextBassSeqTime, false);
+      // If dashing, insert an 8th-note root fill halfway to the next quarter
+      if (_playerDashing) {
+        _scheduleBassSeqNote(_nextBassSeqTime + halfBeat, true); // true = root fill
+      }
+      _nextBassSeqTime += beat; // always advance by quarter note
     }
   }
 }
@@ -1496,49 +1500,60 @@ let _killQueue = 0; // accumulated kills since last bar reset
 let _bassSeqActive = false;
 
 // Build next bar's bass pattern based on recent gameplay events
+// User's requested format: R R R [variation] — last note changes based on kills
+// Example: E3 E3 E3 D3, or E3 E3 E3 F3
 function _buildNextBassBar() {
-  const root = 0; // root note
+  const R = 0; // root (e.g. E3)
   if (_killQueue === 0) {
-    // No action: steady root
-    _bassBarPattern = [root, root, root, root];
+    // No action: steady root → R R R R
+    _bassBarPattern = [R, R, R, R];
   } else if (_killQueue <= 2) {
-    // Light action: one variation note (drop to 7th on beat 4)
-    _bassBarPattern = [root, root, root, 5]; // 5th degree
-  } else if (_killQueue <= 5) {
-    // Moderate: two variations (root, root, 3rd, 5th)
-    _bassBarPattern = [root, root, 2, 4]; // minor 3rd, 5th
-  } else if (_killQueue <= 10) {
-    // Heavy: ascending walk (root, 2nd, 3rd, 5th)
-    _bassBarPattern = [root, 1, 2, 4];
+    // Light: last note drops a step → R R R flat7 (like E E E D)
+    _bassBarPattern = [R, R, R, 6]; // degree 6 = minor 7th (D if root is E)
+  } else if (_killQueue <= 4) {
+    // Moderate: last note goes up → R R R 3rd (like E E E F)
+    _bassBarPattern = [R, R, R, 2]; // degree 2 = minor 3rd
+  } else if (_killQueue <= 7) {
+    // Active: two variations → R R 5th flat7 (like E E G D)
+    _bassBarPattern = [R, R, 4, 6];
+  } else if (_killQueue <= 12) {
+    // Heavy: walk with 4th beat variation → R 5th R flat7
+    _bassBarPattern = [R, 4, R, 6];
   } else {
-    // Intense: chromatic climb (root, b2, 3rd, 4th, 5th)
-    _bassBarPattern = [root, 1, 3, 4];
+    // Intense: ascending bass walk → R 2nd 3rd 5th
+    _bassBarPattern = [R, 1, 2, 4];
   }
   _killQueue = 0;
 }
 
-function _scheduleBassSeqNote(time) {
+function _scheduleBassSeqNote(time, isRootFill) {
   if (!_voices || !_voices.bass) return;
   const root = _getArcRoot();
-  const degree = _bassBarPattern[_bassSeqIdx % 4];
-  const freq = _scaleFreq(root, degree, 1); // 1 octave up from root for clarity
   const beat = _beatSec();
-  const noteDur = _playerDashing ? beat * 0.3 : beat * 0.5; // shorter staccato when dashing
 
-  // Play through the existing bass voice — modulate its frequency rhythmically
+  // Root fills (during dash) always play the root at same octave
+  // Pattern notes play the bar's degree sequence
+  const degree = isRootFill ? 0 : _bassBarPattern[_bassSeqIdx % 4];
+  const freq = _scaleFreq(root, degree, 0); // octave 0 = bass register
+  const noteDur = isRootFill ? beat * 0.25 : beat * 0.45; // fills are shorter staccato
+
+  // Modulate the bass voice frequency rhythmically
   _voices.bass.osc.frequency.setValueAtTime(freq, time);
 
-  // Gain envelope: note on → sustain → note off (creates rhythmic pulse)
+  // Gain envelope: note on → sustain → release
   const tension = 1 - _playerHpRatio;
-  const vol = 0.14 + tension * 0.06;
+  const vol = isRootFill ? 0.12 : (0.16 + tension * 0.06);
   _voices.bass.gain.gain.setValueAtTime(vol, time);
-  _voices.bass.gain.gain.setValueAtTime(vol, time + noteDur * 0.8);
-  _voices.bass.gain.gain.linearRampToValueAtTime(vol * 0.3, time + noteDur);
+  _voices.bass.gain.gain.setValueAtTime(vol, time + noteDur * 0.75);
+  _voices.bass.gain.gain.linearRampToValueAtTime(vol * 0.2, time + noteDur);
 
-  _bassSeqIdx++;
-  // Build new pattern at start of each bar (every 4 beats)
-  if (_bassSeqIdx % 4 === 0) {
-    _buildNextBassBar();
+  // Only advance pattern index on quarter notes (not fills)
+  if (!isRootFill) {
+    _bassSeqIdx++;
+    // Build new pattern at start of each bar (every 4 beats)
+    if (_bassSeqIdx % 4 === 0) {
+      _buildNextBassBar();
+    }
   }
 }
 
