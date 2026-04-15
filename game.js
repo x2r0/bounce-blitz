@@ -57,7 +57,8 @@ import {
   sfxWaveClear, sfxBossIntro, sfxBossHit, sfxBossPhaseTransition,
   sfxBossDefeat, sfxGameOver, sfxShardCollect, sfxEvolutionUnlock,
   sfxUIClick, sfxMultiPop, sfxGravityBomb,
-  startMusic, stopMusic, setMusicIntensity, setBossMusic, setMusicState
+  startMusic, stopMusic, setMusicIntensity, setBossMusic, setMusicState,
+  setPlayerActivity
 } from './systems/audio.js';
 import platformSDK from './platform-sdk.js';
 import { setupCrazyGames } from './platform-crazygames.js';
@@ -979,6 +980,7 @@ function update(dt) {
     updateDashCharge(dt); updatePlayer(dt); updateEnemies(dt); updateParticles(dt);
     updatePowerUps(dt); updateBoostPickups(dt); updateShardPickups(dt);
     updateDashPreview();
+    { const p = G.player; setPlayerActivity(Math.sqrt(p.vx*p.vx+p.vy*p.vy)/400, p.hp/p.maxHp); }
     updateFloatTexts(dt); updateShockwaves(dt); updateAfterimages(dt);
 
     // Spawn physics-style afterimage trail during wave transition scroll
@@ -1137,6 +1139,7 @@ function update(dt) {
   }
 
   updateDashCharge(dt); updatePlayer(dt); updateEnemies(dt); updatePowerUps(dt); updateParticles(dt);
+  { const p = G.player; setPlayerActivity(Math.sqrt(p.vx*p.vx+p.vy*p.vy)/400, p.hp/p.maxHp); }
   updateFloatTexts(dt); updateShockwaves(dt); updateAfterimages(dt);
   updateWallFlashes(dt); updateCollectRings(dt); updateMultiPopExplosions(dt);
   updateTapBounceRipples(dt); updateCombatTexts(dt);

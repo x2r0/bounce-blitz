@@ -20,7 +20,7 @@ function ensureCtx() {
   sfxGain.gain.value = 1.0;
   sfxGain.connect(masterGain);
   musicGain = audioCtx.createGain();
-  musicGain.gain.value = 0.25;
+  musicGain.gain.value = 0.5;
   musicGain.connect(masterGain);
   return audioCtx;
 }
@@ -475,7 +475,7 @@ function _scaleFreq(root, degree, octaveShift) {
   return root * Math.pow(2, (semitones / 12) + oct);
 }
 
-function _playMusicAccent(freq, dur, vol, delay) {
+function _playMusicAccent(freq, dur, vol, delay, prominent) {
   if (!audioCtx || !musicGain) return;
   const ctx = audioCtx;
   const t = ctx.currentTime + (delay || 0);
@@ -486,12 +486,14 @@ function _playMusicAccent(freq, dur, vol, delay) {
   osc.frequency.value = freq;
   filter.type = 'lowpass';
   filter.frequency.value = Math.min(4000, freq * 4);
-  gain.gain.setValueAtTime(vol || 0.07, t);
-  gain.gain.setValueAtTime(vol || 0.07, t + dur * 0.6);
+  const v = vol || 0.07;
+  gain.gain.setValueAtTime(v, t);
+  gain.gain.setValueAtTime(v, t + dur * 0.6);
   gain.gain.linearRampToValueAtTime(0, t + dur);
   osc.connect(filter);
   filter.connect(gain);
-  gain.connect(_outputGain || musicGain);
+  // Prominent accents route through sfxGain (louder, cuts through)
+  gain.connect(prominent ? sfxGain : (_outputGain || musicGain));
   osc.start(t);
   osc.stop(t + dur + 0.01);
 }
@@ -504,11 +506,11 @@ function _reactToAction(action, intensity) {
   if (action === 'kill') {
     _actionHeat = Math.min(1, _actionHeat + 0.06);
     _startHeatDecay();
-    // Play an in-key accent note based on enemy type
-    const degree = intensity || 0; // enemy scale degree passed from sfxEnemyKill
-    const freq = _scaleFreq(root, degree, 2); // 2 octaves up for clarity
-    const vol = 0.06 + _actionHeat * 0.04;
-    _playMusicAccent(freq, 0.12, vol);
+    // Prominent in-key accent note based on enemy type
+    const degree = intensity || 0;
+    const freq = _scaleFreq(root, degree, 2);
+    const vol = 0.10 + _actionHeat * 0.06;
+    _playMusicAccent(freq, 0.15, vol, 0, true); // prominent — through sfxGain
     // Filter spike
     if (_globalFilter) {
       const cur = _globalFilter.frequency.value;
@@ -519,12 +521,12 @@ function _reactToAction(action, intensity) {
     const count = intensity || 2;
     _actionHeat = Math.min(1, _actionHeat + 0.04 * Math.min(count, 10));
     _startHeatDecay();
-    // Ascending arpeggio burst — play 2-4 quick notes up the scale
+    // Prominent ascending arpeggio burst
     const noteCount = Math.min(4, 1 + Math.floor(count / 3));
     const baseDeg = count % 7;
     for (let i = 0; i < noteCount; i++) {
       const freq = _scaleFreq(root, baseDeg + i, 2);
-      _playMusicAccent(freq, 0.08, 0.07, i * 0.06);
+      _playMusicAccent(freq, 0.10, 0.10, i * 0.06, true);
     }
     // Filter sweep
     if (_globalFilter) {
@@ -534,11 +536,13 @@ function _reactToAction(action, intensity) {
       _globalFilter.frequency.linearRampToValueAtTime(cur, now + 0.3);
     }
   } else if (action === 'dash') {
-    _actionHeat = Math.min(1, _actionHeat + 0.02);
+    _actionHeat = Math.min(1, _actionHeat + 0.04);
     _startHeatDecay();
-    // Quick high accent note on dash
-    const freq = _scaleFreq(root, 4, 3); // high fifth
-    _playMusicAccent(freq, 0.06, 0.04);
+    // Prominent bass stab on dash — rhythmic low note
+    const freq = _scaleFreq(root, 0, 1); // bass octave root
+    _playMusicAccent(freq, 0.10, 0.12, 0, true); // prominent bass hit
+    // Plus a high shimmer
+    _playMusicAccent(_scaleFreq(root, 4, 3), 0.08, 0.06, 0.02);
   } else if (action === 'damage') {
     // Filter dip — music pulls back on hit
     if (_globalFilter) {
@@ -1421,5 +1425,50 @@ export function notifyBossEvent(event, phase) {
         }
       }, 500);
     }
+  }
+}
+
+// --- Player activity tracking: movement → bass rhythm, HP → tension ---
+let _lastMoveBassTime = 0;
+let _playerHpRatio = 1;
+
+export function setPlayerActivity(speed, hpRatio) {
+  if (!_musicPlaying || !_voices || !audioCtx) return;
+  const now = audioCtx.currentTime;
+
+  // HP tension: lower HP = darker music (filter closes, bass gets louder)
+  if (hpRatio !== undefined) {
+    const prevRatio = _playerHpRatio;
+    _playerHpRatio = Math.max(0, Math.min(1, hpRatio));
+    // Only update music params when HP changes significantly
+    if (Math.abs(prevRatio - _playerHpRatio) > 0.05 && _gameState === 'playing') {
+      const tension = 1 - _playerHpRatio; // 0 = full HP, 1 = near death
+      // Filter darkens with low HP
+      const hpFilterPenalty = tension * 600;
+      if (_globalFilter && _savedFilterHz) {
+        _ramp(_globalFilter.frequency, Math.max(300, _savedFilterHz - hpFilterPenalty), 0.3);
+      }
+      // Bass gets heavier at low HP
+      if (_voices.bass) {
+        const bassBoost = tension * 0.06;
+        _ramp(_voices.bass.gain.gain, 0.12 + bassBoost, 0.3);
+      }
+      // LFO speeds up (anxious pulse) at low HP
+      if (_lfo) {
+        _ramp(_lfo.frequency, 0.3 + tension * 1.5, 0.3);
+      }
+    }
+  }
+
+  // Movement → rhythmic bass notes (only during gameplay, throttled)
+  if (speed > 0.3 && _gameState === 'playing' && (now - _lastMoveBassTime) > 0.18) {
+    _lastMoveBassTime = now;
+    const root = _getArcRoot();
+    // Faster movement = louder/higher bass notes
+    const vol = 0.04 + Math.min(speed, 1) * 0.06;
+    const octave = speed > 0.7 ? 2 : 1;
+    // Alternate between root and fifth for rhythmic interest
+    const degree = (_lastMoveBassTime * 3 | 0) % 2 === 0 ? 0 : 4;
+    _playMusicAccent(_scaleFreq(root, degree, octave), 0.08, vol, 0, true);
   }
 }
