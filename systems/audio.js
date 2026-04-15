@@ -113,7 +113,7 @@ export function sfxBounce() {
   playTone(450, 'sine', 0.04, 0.06);
 }
 
-// Enemy kill: satisfying pop (pitch varies)
+// Enemy kill: satisfying pop (pitch varies) + music accent
 export function sfxEnemyKill(enemyType) {
   const pitchMap = {
     drifter: 600, tracker: 500, splitter: 450, mini_splitter: 800,
@@ -124,7 +124,9 @@ export function sfxEnemyKill(enemyType) {
   playTone(freq, 'sine', 0.08, 0.18);
   playTone(freq * 1.5, 'sine', 0.05, 0.08);
   playNoise(0.04, 0.06, 4000, 'highpass');
-  _reactToAction('kill');
+  // Pass enemy's scale degree so music plays an in-key note
+  const degree = ENEMY_SCALE_DEGREE[enemyType] || 0;
+  _reactToAction('kill', degree);
 }
 
 // Combo kills: escalating pitch
@@ -447,14 +449,67 @@ function _startHeatDecay() {
   }, 50);
 }
 
+// --- Musical accent system: play in-key notes through music channel ---
+// Enemy type → scale degree (0-6 in current key)
+const ENEMY_SCALE_DEGREE = {
+  drifter: 0, tracker: 2, splitter: 3, mini_splitter: 5,
+  pulser: 1, teleporter: 4, bomber: 0, spawner: 2,
+  spawner_minion: 6, sniper: 3,
+};
+// A minor scale intervals (semitones from root)
+const MINOR_SCALE = [0, 2, 3, 5, 7, 8, 10];
+
+function _getArcRoot() {
+  if (_isBossMusic) {
+    const boss = BOSS_THEMES[_getBossIndex(_currentWave)];
+    return boss.bass.freq || boss.bass.freqs?.[0] || 110;
+  }
+  if (_gameState === 'title') return 110;
+  const arc = MUSIC_ARCS[_currentArcIdx];
+  return arc ? arc.bass.freq : 110;
+}
+
+function _scaleFreq(root, degree, octaveShift) {
+  const semitones = MINOR_SCALE[degree % 7];
+  const oct = Math.floor(degree / 7) + (octaveShift || 0);
+  return root * Math.pow(2, (semitones / 12) + oct);
+}
+
+function _playMusicAccent(freq, dur, vol, delay) {
+  if (!audioCtx || !musicGain) return;
+  const ctx = audioCtx;
+  const t = ctx.currentTime + (delay || 0);
+  const osc = ctx.createOscillator();
+  const gain = ctx.createGain();
+  const filter = ctx.createBiquadFilter();
+  osc.type = 'triangle';
+  osc.frequency.value = freq;
+  filter.type = 'lowpass';
+  filter.frequency.value = Math.min(4000, freq * 4);
+  gain.gain.setValueAtTime(vol || 0.07, t);
+  gain.gain.setValueAtTime(vol || 0.07, t + dur * 0.6);
+  gain.gain.linearRampToValueAtTime(0, t + dur);
+  osc.connect(filter);
+  filter.connect(gain);
+  gain.connect(_outputGain || musicGain);
+  osc.start(t);
+  osc.stop(t + dur + 0.01);
+}
+
 function _reactToAction(action, intensity) {
   if (!_musicPlaying || !_voices || !audioCtx) return;
   const now = audioCtx.currentTime;
+  const root = _getArcRoot();
 
   if (action === 'kill') {
     _actionHeat = Math.min(1, _actionHeat + 0.06);
     _startHeatDecay();
-    // Brief filter spike
+    // Play an in-key accent note based on enemy type
+    const degree = intensity || 0; // enemy scale degree passed from sfxEnemyKill
+    const freq = _scaleFreq(root, degree, 2); // 2 octaves up for clarity
+    const vol = 0.06 + _actionHeat * 0.04;
+    _playMusicAccent(freq, 0.12, vol);
+    // Filter spike
     if (_globalFilter) {
       const cur = _globalFilter.frequency.value;
       _globalFilter.frequency.setValueAtTime(Math.min(5000, cur + 400), now);
@@ -464,7 +519,14 @@ function _reactToAction(action, intensity) {
     const count = intensity || 2;
     _actionHeat = Math.min(1, _actionHeat + 0.04 * Math.min(count, 10));
     _startHeatDecay();
-    // Proportional filter sweep
+    // Ascending arpeggio burst — play 2-4 quick notes up the scale
+    const noteCount = Math.min(4, 1 + Math.floor(count / 3));
+    const baseDeg = count % 7;
+    for (let i = 0; i < noteCount; i++) {
+      const freq = _scaleFreq(root, baseDeg + i, 2);
+      _playMusicAccent(freq, 0.08, 0.07, i * 0.06);
+    }
+    // Filter sweep
     if (_globalFilter) {
       const boost = Math.min(1500, count * 150);
       const cur = _globalFilter.frequency.value;
@@ -474,6 +536,9 @@ function _reactToAction(action, intensity) {
   } else if (action === 'dash') {
     _actionHeat = Math.min(1, _actionHeat + 0.02);
     _startHeatDecay();
+    // Quick high accent note on dash
+    const freq = _scaleFreq(root, 4, 3); // high fifth
+    _playMusicAccent(freq, 0.06, 0.04);
   } else if (action === 'damage') {
     // Filter dip — music pulls back on hit
     if (_globalFilter) {
@@ -486,7 +551,11 @@ function _reactToAction(action, intensity) {
       _outputGain.gain.linearRampToValueAtTime(1.0, now + 0.4);
     }
   } else if (action === 'wave_clear') {
-    // Triumphant filter open + gain swell
+    // Resolving descending phrase: root→5th→root (tension release)
+    _playMusicAccent(_scaleFreq(root, 0, 3), 0.25, 0.09, 0);
+    _playMusicAccent(_scaleFreq(root, 4, 2), 0.25, 0.08, 0.2);
+    _playMusicAccent(_scaleFreq(root, 0, 2), 0.4, 0.07, 0.4);
+    // Filter open + gain swell
     if (_globalFilter) {
       _globalFilter.frequency.setValueAtTime(4000, now);
       _globalFilter.frequency.linearRampToValueAtTime(_savedFilterHz || 1200, now + 1.0);
@@ -499,6 +568,9 @@ function _reactToAction(action, intensity) {
   } else if (action === 'boss_hit') {
     _actionHeat = Math.min(1, _actionHeat + 0.08);
     _startHeatDecay();
+    // Aggressive accent note — low power chord hit
+    _playMusicAccent(_scaleFreq(root, 0, 1), 0.15, 0.08);
+    _playMusicAccent(_scaleFreq(root, 4, 1), 0.12, 0.06, 0.02);
     if (_globalFilter) {
       const cur = _globalFilter.frequency.value;
       _globalFilter.frequency.setValueAtTime(Math.min(5000, cur + 600), now);
@@ -660,9 +732,15 @@ function _stopScheduler() {
 }
 
 // Title-state scheduler definitions
-const TITLE_LEAD_NOTES = [220, 330, 440, 330, 262, 330]; // A3→E4→A4→E4→C4→E4
-const _titleLeadDef = { notes: TITLE_LEAD_NOTES, subdiv: 0.5, legato: 0.7, type: 'sawtooth' };
-const _titleTexDef = { freq: 880, burstSec: 0.04, everyBeats: 4, type: 'triangle' };
+// Title arpeggio: Am → C → Em → F progression, 16 notes per cycle
+const TITLE_LEAD_NOTES = [
+  220, 262, 330, 440,   // Am: A3→C4→E4→A4
+  262, 330, 392, 523,   // C:  C4→E4→G4→C5
+  330, 392, 494, 330,   // Em: E4→G4→B4→E4
+  349, 440, 523, 349,   // F:  F4→A4→C5→F4
+];
+const _titleLeadDef = { notes: TITLE_LEAD_NOTES, subdiv: 1, legato: 0.8, type: 'sawtooth' };
+const _titleTexDef = { freq: 880, burstSec: 0.04, everyBeats: 2, type: 'triangle' };
 
 function _schedulerTick() {
   if (!audioCtx || !_musicPlaying || !_voices) return;
@@ -1052,40 +1130,39 @@ function _applyBossParams(dur) {
   _savedLeadGain = boss.lead.gain;
 }
 
-// --- Title music (enhanced ambient — captivating from moment 0) ---
+// --- Title music (proper melodic piece — captivating from moment 0) ---
 function _applyTitleParams() {
   if (!_voices) return;
-  _currentBpm = 56;
+  _currentBpm = 80;  // Proper tempo for a melodic piece
   _gameState = 'title';
 
-  // Bass: warm A2 foundation
+  // Bass: warm A2 foundation with gentle pulse
   _ramp(_voices.bass.osc.frequency, 110, 0);
   _voices.bass.osc.type = 'sine';
-  _ramp(_voices.bass.gain.gain, 0.12, 1.5);
+  _ramp(_voices.bass.gain.gain, 0.14, 1.0);
 
-  // Harmony: E3 fifth, slightly louder for fullness
+  // Harmony: E3 fifth, audible and warm
   _ramp(_voices.harmony.osc.frequency, 165, 0);
   _voices.harmony.osc.type = 'triangle';
-  _ramp(_voices.harmony.gain.gain, 0.06, 2.0);
+  _ramp(_voices.harmony.gain.gain, 0.08, 1.5);
 
-  // Lead: slow dreamy arpeggio, filtered sawtooth
+  // Lead: melodic arpeggio with chord progression
   _voices.lead.osc.type = 'sawtooth';
-  _ramp(_voices.lead.gain.gain, 0.05, 3.0);
-  _ramp(_leadFilter.frequency, 1200, 0);
+  _ramp(_voices.lead.gain.gain, 0.06, 1.5);
+  _ramp(_leadFilter.frequency, 1600, 0);
 
-  // Texture: gentle high pings every 4 beats
+  // Texture: rhythmic pings every 2 beats for pulse
   _voices.texture.osc.type = 'triangle';
   _ramp(_voices.texture.osc.frequency, 880, 0);
-  // Bursts handled by scheduler; start silent
   _voices.texture.gain.gain.setValueAtTime(0, audioCtx.currentTime);
 
-  // Brighter filter for immediate presence
-  _ramp(_globalFilter.frequency, 1400, 0);
-  _ramp(_globalFilter.Q, 1.5, 0);
-  _ramp(_lfo.frequency, 0.15, 0);
+  // Open filter for bright, inviting sound
+  _ramp(_globalFilter.frequency, 1800, 0);
+  _ramp(_globalFilter.Q, 2.0, 0);
+  _ramp(_lfo.frequency, 0.2, 0);
   _ramp(_lfoGain.gain, 0.03, 0);
 
-  _ramp(_outputGain.gain, 1.0, 1.5);
+  _ramp(_outputGain.gain, 1.0, 0.8);
 
   // Start scheduler so lead arpeggio + texture pings play on title
   _leadIdx = 0;
