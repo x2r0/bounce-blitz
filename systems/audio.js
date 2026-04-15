@@ -1499,43 +1499,54 @@ let _bassBarPattern = [0, 0, 0, 0]; // scale degrees for 4-beat bar, 0 = root
 let _killQueue = 0; // accumulated kills since last bar reset
 let _bassSeqActive = false;
 
+// Get the bass sequencer's home note — the 5th/harmony of current key
+// For A minor: E3 = 165 Hz. For other arcs: the harmony frequency.
+function _getBassSeqHome() {
+  if (_gameState === 'title') return 165; // E3
+  if (_isBossMusic) {
+    const boss = BOSS_THEMES[_getBossIndex(_currentWave)];
+    return (boss.harmony.freq || (boss.harmony.freqs ? boss.harmony.freqs[0] : 165));
+  }
+  const arc = MUSIC_ARCS[_currentArcIdx];
+  if (!arc) return 165;
+  return arc.harmony.freq || (arc.harmony.freqs ? arc.harmony.freqs[0] : arc.bass.freq * 1.5);
+}
+
 // Build next bar's bass pattern based on recent gameplay events
-// User's requested format: R R R [variation] — last note changes based on kills
-// Example: E3 E3 E3 D3, or E3 E3 E3 F3
+// Pattern uses semitone offsets from the home note (e.g. E3)
+// Example: E3 E3 E3 D3 → [0, 0, 0, -2], E3 E3 E3 F3 → [0, 0, 0, +1]
 function _buildNextBassBar() {
-  const R = 0; // root (e.g. E3)
   if (_killQueue === 0) {
-    // No action: steady root → R R R R
-    _bassBarPattern = [R, R, R, R];
+    // No action: steady home note → E E E E
+    _bassBarPattern = [0, 0, 0, 0];
   } else if (_killQueue <= 2) {
-    // Light: last note drops a step → R R R flat7 (like E E E D)
-    _bassBarPattern = [R, R, R, 6]; // degree 6 = minor 7th (D if root is E)
+    // Light: last note drops a whole step → E E E D
+    _bassBarPattern = [0, 0, 0, -2];
   } else if (_killQueue <= 4) {
-    // Moderate: last note goes up → R R R 3rd (like E E E F)
-    _bassBarPattern = [R, R, R, 2]; // degree 2 = minor 3rd
+    // Moderate: last note rises a half step → E E E F
+    _bassBarPattern = [0, 0, 0, 1];
   } else if (_killQueue <= 7) {
-    // Active: two variations → R R 5th flat7 (like E E G D)
-    _bassBarPattern = [R, R, 4, 6];
+    // Active: two variations → E E G D
+    _bassBarPattern = [0, 0, 3, -2]; // minor 3rd up, whole step down
   } else if (_killQueue <= 12) {
-    // Heavy: walk with 4th beat variation → R 5th R flat7
-    _bassBarPattern = [R, 4, R, 6];
+    // Heavy: alternating → E A E D
+    _bassBarPattern = [0, 5, 0, -2]; // 4th up, whole step down
   } else {
-    // Intense: ascending bass walk → R 2nd 3rd 5th
-    _bassBarPattern = [R, 1, 2, 4];
+    // Intense: ascending walk → E F G A
+    _bassBarPattern = [0, 1, 3, 5];
   }
   _killQueue = 0;
 }
 
 function _scheduleBassSeqNote(time, isRootFill) {
   if (!_voices || !_voices.bass) return;
-  const root = _getArcRoot();
+  const home = _getBassSeqHome(); // E3 = 165 Hz in A minor
   const beat = _beatSec();
 
-  // Root fills (during dash) always play the root at same octave
-  // Pattern notes play the bar's degree sequence
-  const degree = isRootFill ? 0 : _bassBarPattern[_bassSeqIdx % 4];
-  const freq = _scaleFreq(root, degree, 1); // octave 1 = E3/A3 register (~165-220 Hz)
-  const noteDur = isRootFill ? beat * 0.25 : beat * 0.45; // fills are shorter staccato
+  // Semitone offset: 0 for fills and root beats, pattern value for variations
+  const semitones = isRootFill ? 0 : _bassBarPattern[_bassSeqIdx % 4];
+  const freq = home * Math.pow(2, semitones / 12);
+  const noteDur = isRootFill ? beat * 0.25 : beat * 0.45;
 
   // Modulate the bass voice frequency rhythmically
   _voices.bass.osc.frequency.setValueAtTime(freq, time);
