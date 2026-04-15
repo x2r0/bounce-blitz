@@ -409,6 +409,9 @@ export function updateArenaModifiers(dt) {
       const p = G.pillars[i];
       if (!p.alive) continue;
 
+      // Beam-block flash timer
+      if (p.flashTimer > 0) p.flashTimer -= dt;
+
       // Player bounce off pillar
       const pd = dist(player, p);
       if (pd < player.r + p.r) {
@@ -625,6 +628,32 @@ function spawnPillarShards(x, y, count) {
   }
 }
 
+// --- Beam-block pillar damage helpers ---
+// Called per beam that a pillar blocks. Returns true if pillar reached 0 HP.
+export function applyBeamDamageToPillar(p) {
+  p.hp--;
+  p.crackLevel = p.maxHp - p.hp;
+  p.flashTimer = 0.12;
+  spawnParticles(p.x, p.y, '#555566', 3);
+  return p.hp <= 0;
+}
+
+// Deferred cleanup for pillars destroyed by beam blocks (call after all beams tested).
+export function cleanupDestroyedPillar(p) {
+  p.alive = false;
+  G.pillarDestroyedCount = (G.pillarDestroyedCount || 0) + 1;
+  spawnParticles(p.x, p.y, '#555566', 8);
+  const shardCount = Math.min(6, 3 + Math.floor(G.wave / 5));
+  spawnPillarShards(p.x, p.y, shardCount);
+  if (Math.random() < 0.25) {
+    G.staminaOrbs = G.staminaOrbs || [];
+    G.staminaOrbs.push({ x: p.x, y: p.y, r: 8, life: 8.0 });
+  }
+  spawnCombatText('DESTROYED!', p.x, p.y - 30, { size: 14, color: '#aaaaaa' });
+  const idx = G.pillars.indexOf(p);
+  if (idx >= 0) G.pillars.splice(idx, 1);
+}
+
 // --- Power Gem: one-time power pickup ---
 const GEM_RARITY_COLORS = { common: '#ffffff', rare: '#4488ff', epic: '#aa44ff' };
 const GEM_SCORE_VALUES = { common: 500, rare: 1000, epic: 2000 };
@@ -743,37 +772,77 @@ export function drawArenaModifiers() {
       ctx.save();
       ctx.globalAlpha = fa;
       ctx.translate(p.x, p.y);
-      ctx.fillStyle = '#555566';
-      ctx.shadowColor = '#333344';
-      ctx.shadowBlur = 4;
+      // Radial gradient fill: warm sandstone
+      const pillarGrad = ctx.createRadialGradient(0, 0, 0, 0, 0, p.r);
+      pillarGrad.addColorStop(0, '#8B6B50');
+      pillarGrad.addColorStop(1, '#5C3D28');
+      ctx.fillStyle = pillarGrad;
+      ctx.shadowColor = '#3D2816';
+      ctx.shadowBlur = 6;
       ctx.beginPath();
       ctx.arc(0, 0, p.r, 0, Math.PI * 2);
       ctx.fill();
+      // Border ring
+      ctx.shadowBlur = 0;
+      ctx.strokeStyle = '#3D2816';
+      ctx.lineWidth = 2;
+      ctx.stroke();
 
-      // Crack lines
-      if (p.crackLevel > 0) {
-        ctx.strokeStyle = '#333333';
-        ctx.lineWidth = 1;
-        ctx.globalAlpha = 0.6 * fa;
-        for (let c = 0; c < p.crackLevel; c++) {
-          const angle = (c / p.maxHp) * Math.PI * 2 + 0.3;
-          ctx.beginPath();
-          ctx.moveTo(0, 0);
-          ctx.lineTo(Math.cos(angle) * p.r * 0.8, Math.sin(angle) * p.r * 0.8);
-          ctx.stroke();
-        }
+      // Beam-block flash overlay (white lerp back over 0.12s)
+      if (p.flashTimer > 0) {
+        ctx.save();
+        ctx.globalAlpha = (p.flashTimer / 0.12) * fa;
+        ctx.fillStyle = '#ffffff';
+        ctx.beginPath();
+        ctx.arc(0, 0, p.r, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+        ctx.globalAlpha = fa; // restore for subsequent draws
       }
 
-      // HP pips
-      ctx.globalAlpha = fa;
-      const pipY = -p.r - 8;
-      const pipSpacing = 6;
-      const startX = -(p.maxHp - 1) * pipSpacing / 2;
-      for (let j = 0; j < p.maxHp; j++) {
-        ctx.fillStyle = j < p.hp ? '#888899' : '#333333';
+      // Critical glow (HP = 1)
+      if (p.hp === 1) {
+        ctx.save();
+        ctx.globalAlpha = 0.35 * fa;
+        ctx.shadowColor = '#CC4422';
+        ctx.shadowBlur = 8;
         ctx.beginPath();
-        ctx.arc(startX + j * pipSpacing, pipY, 2, 0, Math.PI * 2);
+        ctx.arc(0, 0, p.r, 0, Math.PI * 2);
+        ctx.fillStyle = pillarGrad;
         ctx.fill();
+        ctx.restore();
+      }
+
+      // Enhanced crack lines
+      if (p.crackLevel > 0) {
+        const crackColor = p.crackLevel >= 3 ? '#6B3318' : p.crackLevel >= 2 ? '#4A2A12' : '#3D2816';
+        const crackWidth = p.crackLevel >= 3 ? 2.0 : 1.5;
+        const crackAlpha = p.crackLevel >= 3 ? 0.7 : p.crackLevel >= 2 ? 0.6 : 0.5;
+        ctx.strokeStyle = crackColor;
+        ctx.lineWidth = crackWidth;
+        ctx.globalAlpha = crackAlpha * fa;
+        for (let c = 0; c < p.crackLevel; c++) {
+          const angle = (c / p.maxHp) * Math.PI * 2 + 0.3;
+          const endX = Math.cos(angle) * p.r * 0.85;
+          const endY = Math.sin(angle) * p.r * 0.85;
+          ctx.beginPath();
+          ctx.moveTo(0, 0);
+          ctx.lineTo(endX, endY);
+          ctx.stroke();
+          // Branch forks at crackLevel >= 3
+          if (p.crackLevel >= 3) {
+            const midX = endX * 0.6;
+            const midY = endY * 0.6;
+            const branchLen = p.r * 0.25;
+            for (const offset of [-Math.PI / 6, Math.PI / 6]) {
+              const bAngle = angle + offset;
+              ctx.beginPath();
+              ctx.moveTo(midX, midY);
+              ctx.lineTo(midX + Math.cos(bAngle) * branchLen, midY + Math.sin(bAngle) * branchLen);
+              ctx.stroke();
+            }
+          }
+        }
       }
       ctx.restore();
     }
@@ -787,20 +856,21 @@ export function drawArenaModifiers() {
       const dimmed = pad.cooldown > 0;
       ctx.save();
       ctx.translate(pad.x, pad.y);
-      ctx.globalAlpha = (dimmed ? 0.3 : 0.6) * fa;
-      ctx.fillStyle = '#00ffcc';
-      ctx.shadowColor = '#00ffcc';
-      ctx.shadowBlur = dimmed ? 2 : 8;
+      ctx.globalAlpha = (dimmed ? 0.2 : 0.7) * fa;
+      ctx.fillStyle = '#00FF88';
+      ctx.shadowColor = '#00FF88';
+      ctx.shadowBlur = dimmed ? 3 : 10;
       ctx.beginPath();
       ctx.arc(0, 0, pad.r, 0, Math.PI * 2);
       ctx.fill();
 
-      // Ring edge
-      ctx.strokeStyle = '#00ffcc';
+      // Ring edge with radial pulse
+      ctx.strokeStyle = '#00CC66';
       ctx.lineWidth = 2;
       ctx.globalAlpha = (dimmed ? 0.15 : 0.6) * fa;
+      const ringPulse = dimmed ? 0 : 1.5 * Math.sin(Date.now() * 0.005);
       ctx.beginPath();
-      ctx.arc(0, 0, pad.r, 0, Math.PI * 2);
+      ctx.arc(0, 0, pad.r + ringPulse, 0, Math.PI * 2);
       ctx.stroke();
 
       // Direction arrow
@@ -826,25 +896,25 @@ export function drawArenaModifiers() {
       const fa = fb.fadeAlpha ?? 1;
       if (fa <= 0) continue;
       const dimmed = fb.cooldown > 0;
-      const pulse = 0.7 + 0.1 * Math.sin(Date.now() * 0.003);
+      const pulse = 0.7 + 0.15 * Math.sin(Date.now() * 0.004);
       ctx.save();
       ctx.translate(fb.x, fb.y);
       ctx.rotate(fb.angle);
-      ctx.globalAlpha = (dimmed ? 0.3 : pulse) * fa;
-      ctx.shadowColor = '#00ffcc';
-      ctx.shadowBlur = dimmed ? 3 : 10;
+      ctx.globalAlpha = (dimmed ? 0.2 : pulse) * fa;
+      ctx.shadowColor = '#7755FF';
+      ctx.shadowBlur = dimmed ? 4 : 12;
       ctx.shadowOffsetX = 0; ctx.shadowOffsetY = 0;
       // Gradient bar
       const grad = ctx.createLinearGradient(-40, 0, 40, 0);
-      grad.addColorStop(0, '#00ffcc');
-      grad.addColorStop(0.5, '#ffffff');
-      grad.addColorStop(1, '#00ffcc');
+      grad.addColorStop(0, '#7755FF');
+      grad.addColorStop(0.5, '#BB99FF');
+      grad.addColorStop(1, '#7755FF');
       ctx.fillStyle = grad;
       ctx.fillRect(-40, -6, 80, 12);
       // Surface normal indicator (small triangle)
       ctx.shadowBlur = 0;
       ctx.globalAlpha = (dimmed ? 0.15 : 0.6) * fa;
-      ctx.fillStyle = '#ffffff';
+      ctx.fillStyle = '#DDCCFF';
       ctx.beginPath();
       ctx.moveTo(0, -6);
       ctx.lineTo(-4, -12);

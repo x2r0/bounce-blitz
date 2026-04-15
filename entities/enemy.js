@@ -9,7 +9,8 @@ import { getSpeedScale, getShieldChance, canHaveShield } from '../systems/wave.j
 import { events } from '../eventbus.js';
 import { getPlayerPower, getPlayerPowerLevel, POWER_DEFS, tryLifeSteal } from '../systems/powers.js';
 import { spawnCombatText } from '../systems/combat-text.js';
-import { sfxShieldBreak, sfxMultiPop } from '../systems/audio.js';
+import { sfxShieldBreak, sfxMultiPop, sfxBeamDeflect } from '../systems/audio.js';
+import { applyBeamDamageToPillar, cleanupDestroyedPillar } from '../systems/arena.js';
 
 // --- Spawn helpers ---
 function spawnPosEdge(player) {
@@ -524,14 +525,75 @@ export function updateEnemies(dt) {
 
   // Update sniper beams
   if (G.sniperBeams) {
+    const pendingPillarDeaths = [];
+
     for (let i = G.sniperBeams.length - 1; i >= 0; i--) {
       const beam = G.sniperBeams[i];
       beam.timer -= dt;
-      // Advance beam position
-      beam.headX += beam.dx * 600 * dt;
-      beam.headY += beam.dy * 600 * dt;
-      // Check if beam hits player
-      if (beam.timer > 0 && !beam.hitPlayer) {
+
+      // Advance beam position (skip if already blocked by obstacle)
+      if (!beam.blocked) {
+        beam.headX += beam.dx * 600 * dt;
+        beam.headY += beam.dy * 600 * dt;
+      }
+
+      // Test beam against blocking obstacles
+      if (!beam.blocked && beam.timer > 0) {
+        let closestT = Infinity;
+        let hitX, hitY, hitObstacle = null, hitIsPillar = false;
+
+        // Pillars (circle r=25)
+        if (G.pillars) {
+          for (const p of G.pillars) {
+            if (!p.alive) continue;
+            const res = segCircleIntersect(beam.sx, beam.sy, beam.headX, beam.headY, p.x, p.y, p.r);
+            if (res && res.t < closestT) {
+              closestT = res.t; hitX = res.x; hitY = res.y;
+              hitObstacle = p; hitIsPillar = true;
+            }
+          }
+        }
+        // Bounce pads (circle r=30)
+        if (G.bouncePads) {
+          for (const pad of G.bouncePads) {
+            const res = segCircleIntersect(beam.sx, beam.sy, beam.headX, beam.headY, pad.x, pad.y, pad.r);
+            if (res && res.t < closestT) {
+              closestT = res.t; hitX = res.x; hitY = res.y;
+              hitObstacle = pad; hitIsPillar = false;
+            }
+          }
+        }
+        // Flat bouncers (OBB 80x12)
+        if (G.flatBouncers) {
+          for (const fb of G.flatBouncers) {
+            const res = segOBBIntersect(beam.sx, beam.sy, beam.headX, beam.headY, fb);
+            if (res && res.t < closestT) {
+              closestT = res.t; hitX = res.x; hitY = res.y;
+              hitObstacle = fb; hitIsPillar = false;
+            }
+          }
+        }
+
+        if (hitObstacle) {
+          beam.headX = hitX;
+          beam.headY = hitY;
+          beam.blocked = true;
+
+          // Pillar takes 1 HP damage per beam blocked
+          if (hitIsPillar) {
+            if (applyBeamDamageToPillar(hitObstacle)) {
+              pendingPillarDeaths.push(hitObstacle);
+            }
+          }
+
+          spawnBeamImpactSparks(hitX, hitY);
+          spawnCombatText('BLOCKED', hitX, hitY - 15, { size: 14, color: '#ffffff', life: 0.6 });
+          sfxBeamDeflect();
+        }
+      }
+
+      // Check if beam hits player (only if not blocked by obstacle)
+      if (beam.timer > 0 && !beam.hitPlayer && !beam.blocked) {
         const beamDist = pointToSegmentDist(player.x, player.y, beam.sx, beam.sy, beam.headX, beam.headY);
         if (beamDist < player.r + 3) {
           beam.hitPlayer = true;
@@ -539,6 +601,11 @@ export function updateEnemies(dt) {
         }
       }
       if (beam.timer <= 0) G.sniperBeams.splice(i, 1);
+    }
+
+    // Deferred pillar cleanup (preserves multi-beam blocking on same frame)
+    for (const p of pendingPillarDeaths) {
+      cleanupDestroyedPillar(p);
     }
   }
 }
@@ -662,6 +729,72 @@ function updateSniper(e, dt, player) {
       e.aimTime = 0;
       e.vx = 0; e.vy = 0;
     }
+  }
+}
+
+// --- Beam-obstacle intersection helpers ---
+
+// Segment (ax,ay)→(bx,by) vs circle (cx,cy,r). Returns {t, x, y} of entry point or null.
+// Skips if source is inside or very close (t < 0.05).
+function segCircleIntersect(ax, ay, bx, by, cx, cy, r) {
+  const dx = bx - ax, dy = by - ay;
+  const fx = ax - cx, fy = ay - cy;
+  const a = dx * dx + dy * dy;
+  if (a < 1e-8) return null;
+  const b = 2 * (fx * dx + fy * dy);
+  const c = fx * fx + fy * fy - r * r;
+  const disc = b * b - 4 * a * c;
+  if (disc < 0) return null;
+  const t = (-b - Math.sqrt(disc)) / (2 * a);
+  if (t < 0.05 || t > 1) return null;
+  return { t, x: ax + t * dx, y: ay + t * dy };
+}
+
+// Segment vs OBB (flat bouncer: center fb.x/y, 80x12, rotated fb.angle).
+// Returns {t, x, y} in world space or null.
+function segOBBIntersect(ax, ay, bx, by, fb) {
+  const cosA = Math.cos(-fb.angle), sinA = Math.sin(-fb.angle);
+  const rax = (ax - fb.x) * cosA - (ay - fb.y) * sinA;
+  const ray = (ax - fb.x) * sinA + (ay - fb.y) * cosA;
+  const rbx = (bx - fb.x) * cosA - (by - fb.y) * sinA;
+  const rby = (bx - fb.x) * sinA + (by - fb.y) * cosA;
+  const rdx = rbx - rax, rdy = rby - ray;
+  let tmin = 0, tmax = 1;
+  // X slab [-40, 40]
+  if (Math.abs(rdx) < 1e-8) { if (rax < -40 || rax > 40) return null; }
+  else {
+    let t1 = (-40 - rax) / rdx, t2 = (40 - rax) / rdx;
+    if (t1 > t2) { const tmp = t1; t1 = t2; t2 = tmp; }
+    tmin = Math.max(tmin, t1); tmax = Math.min(tmax, t2);
+    if (tmin > tmax) return null;
+  }
+  // Y slab [-6, 6]
+  if (Math.abs(rdy) < 1e-8) { if (ray < -6 || ray > 6) return null; }
+  else {
+    let t1 = (-6 - ray) / rdy, t2 = (6 - ray) / rdy;
+    if (t1 > t2) { const tmp = t1; t1 = t2; t2 = tmp; }
+    tmin = Math.max(tmin, t1); tmax = Math.min(tmax, t2);
+    if (tmin > tmax) return null;
+  }
+  if (tmin < 0.05) return null;
+  const lx = rax + tmin * rdx, ly = ray + tmin * rdy;
+  const cosB = Math.cos(fb.angle), sinB = Math.sin(fb.angle);
+  return { t: tmin, x: lx * cosB - ly * sinB + fb.x, y: lx * sinB + ly * cosB + fb.y };
+}
+
+// Impact sparks at beam-obstacle intersection (white, 6-10 small fast particles)
+function spawnBeamImpactSparks(x, y) {
+  const count = 6 + Math.floor(Math.random() * 5);
+  for (let i = 0; i < count; i++) {
+    if (G.particles.length >= 100) G.particles.shift();
+    const angle = Math.random() * Math.PI * 2;
+    const speed = 80 + Math.random() * 70;
+    const life = 0.15 + Math.random() * 0.1;
+    G.particles.push({
+      x, y,
+      vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed,
+      r: 2, initR: 2, color: '#ffffff', alpha: 1, life, maxLife: life,
+    });
   }
 }
 

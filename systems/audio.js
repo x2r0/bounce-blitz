@@ -153,6 +153,13 @@ export function sfxShieldBlock() {
   playNoise(0.05, 0.1, 6000, 'highpass');
 }
 
+// Beam deflected by obstacle: metallic ping
+export function sfxBeamDeflect() {
+  playTone(1800, 'sine', 0.05, 0.15);
+  playTone(2400, 'triangle', 0.03, 0.1);
+  playNoise(0.04, 0.08, 8000, 'highpass');
+}
+
 // Shield break (enemy): glass shatter
 export function sfxShieldBreak() {
   playNoise(0.2, 0.2, 8000, 'highpass');
