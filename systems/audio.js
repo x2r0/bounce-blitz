@@ -30,7 +30,14 @@ function ensureCtx() {
 // Resume on user gesture (required by browsers)
 export function resumeAudio() {
   const ctx = ensureCtx();
-  if (ctx.state === 'suspended') ctx.resume();
+  if (ctx.state === 'suspended') return ctx.resume();
+  return Promise.resolve();
+}
+
+export function ensureTitleMusicStarted() {
+  return Promise.resolve(resumeAudio()).then(() => {
+    startMusic();
+  });
 }
 
 export function setVolume(v) {
@@ -158,10 +165,10 @@ export function sfxComboKill(comboCount) {
 
 // Power-up select: card pick confirmation
 export function sfxCardPick() {
-  const ctx = ensureCtx();
-  playTone(523, 'sine', 0.1, 0.15);
-  setTimeout(() => playTone(659, 'sine', 0.1, 0.15), 60);
-  setTimeout(() => playTone(784, 'sine', 0.15, 0.15), 120);
+  ensureCtx();
+  _playKeyedTone(0, 1, 'sine', 0.1, 0.12, 0);
+  _playKeyedTone(1, 1, 'sine', 0.1, 0.12, 60);
+  _playKeyedTone(2, 1, 'triangle', 0.16, 0.13, 120);
   _reactToAction('card_pick');
 }
 
@@ -200,10 +207,10 @@ export function sfxDamageTaken() {
 
 // Wave clear: triumphant chime
 export function sfxWaveClear() {
-  playTone(523, 'sine', 0.15, 0.15);
-  setTimeout(() => playTone(659, 'sine', 0.15, 0.12), 80);
-  setTimeout(() => playTone(784, 'sine', 0.15, 0.12), 160);
-  setTimeout(() => playTone(1047, 'sine', 0.3, 0.15), 240);
+  _playKeyedTone(0, 1, 'sine', 0.15, 0.12, 0);
+  _playKeyedTone(2, 1, 'sine', 0.15, 0.11, 80);
+  _playKeyedTone(1, 2, 'triangle', 0.18, 0.11, 170);
+  _playKeyedTone(3, 1, 'sine', 0.3, 0.14, 280);
   _reactToAction('wave_clear');
 }
 
@@ -252,10 +259,10 @@ export function sfxBossDefeat() {
   playTone(60, 'sine', 0.3, 0.2);
   // Victory fanfare
   setTimeout(() => {
-    playTone(523, 'sine', 0.2, 0.15);
-    setTimeout(() => playTone(659, 'sine', 0.2, 0.12), 120);
-    setTimeout(() => playTone(784, 'sine', 0.2, 0.12), 240);
-    setTimeout(() => playTone(1047, 'sine', 0.5, 0.18), 360);
+    _playKeyedTone(0, 1, 'sine', 0.2, 0.13, 0);
+    _playKeyedTone(1, 1, 'sine', 0.2, 0.12, 120);
+    _playKeyedTone(2, 1, 'triangle', 0.22, 0.12, 240);
+    _playKeyedTone(3, 2, 'sine', 0.5, 0.16, 360);
   }, 300);
 }
 
@@ -278,38 +285,38 @@ export function sfxGameOver() {
 
 // Shard collect: coin-like chime
 export function sfxShardCollect() {
-  playTone(1200, 'sine', 0.06, 0.12);
-  playTone(1800, 'sine', 0.08, 0.08);
+  _playKeyedTone(2, 2, 'sine', 0.06, 0.08, 0);
+  _playKeyedTone(4, 2, 'triangle', 0.09, 0.06, 28);
 }
 
 // Evolution unlock: epic reveal
 export function sfxEvolutionUnlock() {
-  playTone(400, 'sine', 0.15, 0.15);
-  setTimeout(() => playTone(600, 'sine', 0.15, 0.15), 100);
-  setTimeout(() => playTone(800, 'sine', 0.15, 0.15), 200);
-  setTimeout(() => playTone(1200, 'triangle', 0.4, 0.2), 300);
+  _playKeyedTone(0, 0, 'sine', 0.15, 0.12, 0);
+  _playKeyedTone(1, 0, 'sine', 0.15, 0.12, 100);
+  _playKeyedTone(2, 1, 'sine', 0.18, 0.12, 200);
+  _playKeyedTone(3, 1, 'triangle', 0.42, 0.16, 320);
   setTimeout(() => playNoise(0.2, 0.06, 6000, 'highpass'), 300);
   _reactToAction('evolution');
 }
 
 export function sfxBoostCollect(boostType) {
   const motifs = {
-    screenNuke: [196, 247, 294],
-    invincibility: [330, 440, 659],
-    healthRestore: [262, 330, 392],
-    pointFrenzy: [392, 523, 659],
-    staminaBurst: [247, 330, 494],
+    screenNuke: [0, 6, 1],
+    invincibility: [0, 2, 4],
+    healthRestore: [1, 2, 0],
+    pointFrenzy: [2, 4, 6],
+    staminaBurst: [0, 1, 2],
   };
-  const notes = motifs[boostType] || [330, 440, 523];
-  playTone(notes[0], 'triangle', 0.08, 0.11);
-  setTimeout(() => playTone(notes[1], 'sine', 0.10, 0.10), 55);
-  setTimeout(() => playTone(notes[2], 'triangle', 0.14, 0.11), 110);
+  const degrees = motifs[boostType] || [0, 2, 4];
+  _playKeyedTone(degrees[0], 1, 'triangle', 0.08, 0.09, 0);
+  _playKeyedTone(degrees[1], 1, 'sine', 0.10, 0.09, 55);
+  _playKeyedTone(degrees[2], 1, 'triangle', 0.14, 0.10, 110);
   _reactToAction('boost', boostType);
 }
 
 // UI navigation: subtle click
 export function sfxUIClick() {
-  playTone(800, 'sine', 0.03, 0.06);
+  _playKeyedTone(1, 1, 'sine', 0.03, 0.04, 0);
 }
 
 // Multi-Pop explosion
@@ -547,6 +554,8 @@ let _choirFilter = null;
 
 // Scheduler state
 let _schedulerTimer = null;
+let _transportAnchorTime = 0;
+let _pendingTransitions = [];
 let _nextLeadTime = 0;
 let _leadIdx = 0;
 let _nextTextureTime = 0;
@@ -570,6 +579,11 @@ let _savedFilterHz = 0;
 let _savedLeadGain = 0;
 let _savedBpm = 0;
 let _savedChoirCutoff = 0;
+let _elementEntrances = {
+  lead: null,
+  texture: null,
+  choir: null,
+};
 
 // --- Gameplay-reactive music state ---
 let _actionHeat = 0;        // 0-1 cumulative action intensity, decays over time
@@ -627,6 +641,30 @@ function _freqWithSemitone(base, semitones) {
   return base * Math.pow(2, semitones / 12);
 }
 
+function _startElementEntrance(key, duration) {
+  if (!audioCtx) return;
+  _elementEntrances[key] = {
+    start: audioCtx.currentTime,
+    duration: Math.max(0.1, duration || 1.2),
+  };
+}
+
+function _getElementEntranceMul(key) {
+  const entrance = _elementEntrances[key];
+  if (!entrance || !audioCtx) return 1;
+  const t = (audioCtx.currentTime - entrance.start) / entrance.duration;
+  if (t >= 1) {
+    _elementEntrances[key] = null;
+    return 1;
+  }
+  const clamped = Math.max(0, Math.min(1, t));
+  return clamped * clamped * (3 - 2 * clamped);
+}
+
+function _crossedFadeWave(prevWave, wave, fadeInWave) {
+  return !!fadeInWave && prevWave < fadeInWave && wave >= fadeInWave;
+}
+
 function _getAccentIntervals() {
   const third = _currentChordQuality === 'major' ? 4 : 3;
   const fifth = _currentChordFifth || 7;
@@ -639,6 +677,13 @@ function _accentFreq(root, degree, octaveShift) {
   const idx = ((degree % intervals.length) + intervals.length) % intervals.length;
   const oct = Math.floor(degree / intervals.length) + (octaveShift || 0);
   return root * Math.pow(2, (intervals[idx] / 12) + oct);
+}
+
+function _playKeyedTone(degree, octaveShift, type, duration, volume, delayMs, dest) {
+  const root = _getArcRoot();
+  const play = () => playTone(_accentFreq(root, degree, octaveShift), type, duration, volume, dest);
+  if (delayMs && delayMs > 0) setTimeout(play, delayMs);
+  else play();
 }
 
 function _getCurrentProgression() {
@@ -697,7 +742,7 @@ function _getChoirTargetGain() {
   }
 
   const spotlightMul = _isLeadSpotlightActive() ? 0.74 : 1;
-  return Math.min(0.12, base * stateMul * spotlightMul);
+  return Math.min(0.12, base * stateMul * spotlightMul * _getElementEntranceMul('choir'));
 }
 
 function _applyChoirParams(def, wave, dur) {
@@ -809,6 +854,15 @@ function _canReactNow(action, minInterval) {
   return true;
 }
 
+function _getQuantizedAccentDelay(subdivisionBeats) {
+  if (!audioCtx || !_schedulerTimer) return 0;
+  const now = audioCtx.currentTime;
+  const target = subdivisionBeats >= 1
+    ? _getNextBeatTime(now + 0.005)
+    : _getNextEighthTime(now + 0.005);
+  return Math.max(0, target - now);
+}
+
 function _isLeadSpotlightActive() {
   return !!audioCtx && _leadSpotlightUntil > audioCtx.currentTime;
 }
@@ -830,6 +884,7 @@ function _reactToAction(action, intensity) {
   if (!_musicPlaying || !_voices || !audioCtx) return;
   const now = audioCtx.currentTime;
   const root = _getArcRoot();
+  const spotlightBusy = _isLeadSpotlightActive() || _gameState === 'boss_intro';
 
   if (action === 'kill') {
     _actionHeat = Math.min(1, _actionHeat + 0.06);
@@ -838,8 +893,8 @@ function _reactToAction(action, intensity) {
     // Prominent in-key accent note based on enemy type
     const degree = intensity || 0;
     const freq = _accentFreq(root, degree, 1);
-    const vol = 0.10 + _actionHeat * 0.06;
-    _playMusicAccent(freq, 0.15, vol, 0, true); // prominent — through sfxGain
+    const vol = (0.10 + _actionHeat * 0.06) * (spotlightBusy ? 0.72 : 1);
+    _playMusicAccent(freq, 0.15, vol, _getQuantizedAccentDelay(0.5), true);
     // Filter spike
     if (_globalFilter) {
       const cur = _globalFilter.frequency.value;
@@ -851,11 +906,12 @@ function _reactToAction(action, intensity) {
     _actionHeat = Math.min(1, _actionHeat + 0.04 * Math.min(count, 10));
     _startHeatDecay();
     // Prominent ascending arpeggio burst
-    const noteCount = Math.min(4, 1 + Math.floor(count / 3));
+    const noteCount = spotlightBusy ? Math.min(2, 1 + Math.floor(count / 4)) : Math.min(4, 1 + Math.floor(count / 3));
     const baseDeg = count % 7;
+    const startDelay = _getQuantizedAccentDelay(0.5);
     for (let i = 0; i < noteCount; i++) {
       const freq = _accentFreq(root, baseDeg + i, 1);
-      _playMusicAccent(freq, 0.10, 0.10, i * 0.06, true);
+      _playMusicAccent(freq, 0.10, spotlightBusy ? 0.075 : 0.10, startDelay + i * 0.06, true);
     }
     // Filter sweep
     if (_globalFilter) {
@@ -869,9 +925,10 @@ function _reactToAction(action, intensity) {
     _startHeatDecay();
     // Prominent bass stab on dash — rhythmic low note
     const freq = _accentFreq(root, 0, 0);
-    _playMusicAccent(freq, 0.10, 0.12, 0, true); // prominent bass hit
+    const startDelay = _getQuantizedAccentDelay(0.5);
+    _playMusicAccent(freq, 0.10, spotlightBusy ? 0.09 : 0.12, startDelay, true);
     // Plus a high shimmer
-    _playMusicAccent(_accentFreq(root, 2, 2), 0.08, 0.06, 0.02);
+    _playMusicAccent(_accentFreq(root, 2, 2), 0.08, spotlightBusy ? 0.04 : 0.06, startDelay + 0.02);
   } else if (action === 'damage') {
     // Filter dip — music pulls back on hit
     if (_globalFilter) {
@@ -884,10 +941,11 @@ function _reactToAction(action, intensity) {
       _outputGain.gain.linearRampToValueAtTime(1.0, now + 0.4);
     }
   } else if (action === 'wave_clear') {
+    const startDelay = _getQuantizedAccentDelay(1);
     // Resolving descending phrase: root→5th→root (tension release)
-    _playMusicAccent(_accentFreq(root, 0, 2), 0.25, 0.09, 0);
-    _playMusicAccent(_accentFreq(root, 2, 1), 0.25, 0.08, 0.2);
-    _playMusicAccent(_accentFreq(root, 1, 1), 0.4, 0.07, 0.4);
+    _playMusicAccent(_accentFreq(root, 0, 2), 0.25, 0.09, startDelay);
+    _playMusicAccent(_accentFreq(root, 2, 1), 0.25, 0.08, startDelay + 0.2);
+    _playMusicAccent(_accentFreq(root, 1, 1), 0.4, 0.07, startDelay + 0.4);
     // Filter open + gain swell
     if (_globalFilter) {
       _globalFilter.frequency.setValueAtTime(4000, now);
@@ -919,15 +977,17 @@ function _reactToAction(action, intensity) {
     _playMusicAccent(_accentFreq(root, 0, 1), 0.16, 0.05, 0.08);
   } else if (action === 'card_pick') {
     if (!_canReactNow(action, 0.20)) return;
-    _playMusicAccent(_accentFreq(root, 0, 1), 0.10, 0.05, 0);
-    _playMusicAccent(_accentFreq(root, 1, 1), 0.14, 0.05, 0.07);
+    const startDelay = _getQuantizedAccentDelay(0.5);
+    _playMusicAccent(_accentFreq(root, 0, 1), 0.10, 0.05, startDelay);
+    _playMusicAccent(_accentFreq(root, 1, 1), 0.14, 0.05, startDelay + 0.07);
   } else if (action === 'evolution') {
     _actionHeat = Math.min(1, _actionHeat + 0.12);
     _startHeatDecay();
     _triggerLeadSpotlight(10, 0.02);
-    _playMusicAccent(_accentFreq(root, 0, 1), 0.18, 0.07, 0, true);
-    _playMusicAccent(_accentFreq(root, 1, 1), 0.20, 0.06, 0.12);
-    _playMusicAccent(_accentFreq(root, 2, 2), 0.32, 0.05, 0.28);
+    const startDelay = _getQuantizedAccentDelay(1);
+    _playMusicAccent(_accentFreq(root, 0, 1), 0.18, 0.07, startDelay, true);
+    _playMusicAccent(_accentFreq(root, 1, 1), 0.20, 0.06, startDelay + 0.12);
+    _playMusicAccent(_accentFreq(root, 2, 2), 0.32, 0.05, startDelay + 0.28);
     if (_outputGain) {
       _outputGain.gain.setValueAtTime(1.08, now);
       _outputGain.gain.linearRampToValueAtTime(1.0, now + 0.5);
@@ -935,8 +995,9 @@ function _reactToAction(action, intensity) {
   } else if (action === 'boss_intro') {
     if (!_canReactNow(action, 0.50)) return;
     _triggerLeadSpotlight(8, 0.01);
-    _playMusicAccent(_accentFreq(root, 0, 0), 0.24, 0.05, 0, true);
-    _playMusicAccent(_accentFreq(root, 2, 1), 0.28, 0.04, 0.16);
+    const startDelay = _getQuantizedAccentDelay(1);
+    _playMusicAccent(_accentFreq(root, 0, 0), 0.24, 0.05, startDelay, true);
+    _playMusicAccent(_accentFreq(root, 2, 1), 0.28, 0.04, startDelay + 0.16);
   } else if (action === 'boost') {
     if (!_canReactNow(action, 0.20)) return;
     const boostType = intensity;
@@ -948,8 +1009,9 @@ function _reactToAction(action, intensity) {
       staminaBurst: [0, 1, 2],
     };
     const degrees = patterns[boostType] || [0, 2, 4];
+    const startDelay = _getQuantizedAccentDelay(0.5);
     for (let i = 0; i < degrees.length; i++) {
-      _playMusicAccent(_accentFreq(root, degrees[i], i === 2 ? 2 : 1), 0.12 + i * 0.03, 0.04 + i * 0.01, i * 0.06);
+      _playMusicAccent(_accentFreq(root, degrees[i], i === 2 ? 2 : 1), 0.12 + i * 0.03, 0.04 + i * 0.01, startDelay + i * 0.06);
     }
   }
 }
@@ -993,6 +1055,66 @@ function _ramp(param, val, dur) {
   } else {
     param.setValueAtTime(val, ctx.currentTime);
   }
+}
+
+function _queueTransition(key, time, fn) {
+  _pendingTransitions = _pendingTransitions.filter((t) => t.key !== key);
+  _pendingTransitions.push({ key, time, fn });
+  _pendingTransitions.sort((a, b) => a.time - b.time);
+}
+
+function _flushPendingTransitions(now) {
+  while (_pendingTransitions.length && _pendingTransitions[0].time <= now + 0.001) {
+    const pending = _pendingTransitions.shift();
+    pending.fn(pending.time);
+  }
+}
+
+function _getNextGridTime(subdivisionBeats, fromTime) {
+  const ctx = audioCtx;
+  if (!ctx) return 0;
+  const now = fromTime === undefined ? ctx.currentTime : fromTime;
+  const beat = _beatSec();
+  const step = Math.max(0.001, beat * Math.max(0.125, subdivisionBeats || 1));
+  const anchor = _transportAnchorTime || now;
+  if (anchor > now + 0.001) return anchor;
+  const steps = Math.ceil((now - anchor + 0.0001) / step);
+  const target = anchor + Math.max(0, steps) * step;
+  return target <= now + 0.01 ? target + step : target;
+}
+
+function _getNextBeatTime(fromTime) {
+  return _getNextGridTime(1, fromTime);
+}
+
+function _getNextEighthTime(fromTime) {
+  return _getNextGridTime(0.5, fromTime);
+}
+
+function _getNextBarTime(fromTime) {
+  const now = fromTime === undefined ? (audioCtx ? audioCtx.currentTime : 0) : fromTime;
+  const progression = _getCurrentProgression();
+  if (_nextChordTime > now + 0.01) return _nextChordTime;
+  return _getNextGridTime(progression?.beats || 4, now);
+}
+
+function _syncRhythmicClocks(time, opts) {
+  const options = opts || {};
+  const progression = _getCurrentProgression();
+  const interval = _beatSec() * (progression?.beats || 4);
+  _transportAnchorTime = time;
+  if (options.resetLead) _leadIdx = 0;
+  if (options.resetChord) _chordIdx = 0;
+  if (options.resetBassPattern) {
+    _bassSeqIdx = 0;
+    _buildNextBassBar();
+  }
+  _nextLeadTime = time;
+  _nextTextureTime = time;
+  _nextHarmonySwapTime = time;
+  _nextBassSwapTime = time;
+  if (_bassSeqActive) _nextBassSeqTime = time;
+  _nextChordTime = progression ? (time + interval) : time;
 }
 
 function _createOsc(type, freq, dest) {
@@ -1107,6 +1229,7 @@ function _destroyVoices() {
 function _startScheduler() {
   if (_schedulerTimer) return;
   const ctx = ensureCtx();
+  _transportAnchorTime = ctx.currentTime + 0.05;
   _nextLeadTime = ctx.currentTime + 0.05;
   _nextTextureTime = ctx.currentTime + 0.05;
   _nextChordTime = ctx.currentTime + 0.05;
@@ -1122,6 +1245,7 @@ function _startScheduler() {
 
 function _stopScheduler() {
   if (_schedulerTimer) { clearInterval(_schedulerTimer); _schedulerTimer = null; }
+  _pendingTransitions = [];
 }
 
 // Title-state scheduler definitions
@@ -1138,6 +1262,7 @@ const _titleTexDef = { freq: 880, burstSec: 0.04, everyBeats: 2, type: 'triangle
 function _schedulerTick() {
   if (!audioCtx || !_musicPlaying || !_voices) return;
   const now = audioCtx.currentTime;
+  _flushPendingTransitions(now);
   const ahead = 0.1;
   const isTitle = _gameState === 'title';
   const arc = (_isBossMusic || isTitle) ? null : MUSIC_ARCS[_currentArcIdx];
@@ -1289,7 +1414,7 @@ function _getLeadTargetGain() {
   const g = _lerp(arc.lead.gain[0], arc.lead.gain[1], p);
   // Fade in based on wave
   if (arc.lead.fadeInWave && _currentWave < arc.lead.fadeInWave) return 0;
-  return g * (_isLeadSpotlightActive() ? 1.28 : 1);
+  return g * (_isLeadSpotlightActive() ? 1.28 : 1) * _getElementEntranceMul('lead');
 }
 
 function _scheduleTextureBurst(time, def) {
@@ -1324,7 +1449,7 @@ function _getTextureTargetGain() {
   const p = _getArcProgress(_currentWave, arc);
   const g = _lerp(arc.texture.gain[0], arc.texture.gain[1], p);
   if (arc.texture.fadeInWave && _currentWave < arc.texture.fadeInWave) return 0;
-  return g * (_isLeadSpotlightActive() ? 0.58 : 1);
+  return g * (_isLeadSpotlightActive() ? 0.58 : 1) * _getElementEntranceMul('texture');
 }
 
 // --- Apply arc parameters to voices ---
@@ -1677,6 +1802,7 @@ export function startMusic() {
   _isBossMusic = false;
   _currentWave = 0;
   _gameState = 'title';
+  _elementEntrances = { lead: null, texture: null, choir: null };
 
   // Start with title ambient
   _applyTitleParams();
@@ -1710,47 +1836,68 @@ export function setMusicIntensity(intensity, wave) {
   _musicIntensity = Math.min(1, Math.max(0, intensity));
   if (!_voices || !_musicPlaying) return;
   if (_isBossMusic) return; // boss music handles its own params
+  const ctx = ensureCtx();
 
   // If wave provided, use it for arc determination
   if (wave !== undefined && wave > 0) {
     const previousWave = _currentWave;
     const newArcIdx = _getMusicArcIndex(wave);
-    const arcChanged = newArcIdx !== _currentArcIdx || _gameState === 'title';
+    const fromTitle = _gameState === 'title';
+    const arcChanged = newArcIdx !== _currentArcIdx || fromTitle;
     _currentWave = wave;
 
-    if (arcChanged || _gameState === 'title') {
+    if (arcChanged || fromTitle) {
       _gameState = 'playing';
       _startScheduler();
       const arc = MUSIC_ARCS[newArcIdx];
-      _applyArcParams(wave, arc.transIn || 2.0);
+      const transitionTime = fromTitle ? ctx.currentTime : _getNextBarTime(ctx.currentTime + 0.02);
+      _queueTransition('arc-change', transitionTime, (time) => {
+        _gameState = 'playing';
+        _applyArcParams(wave, arc.transIn || 2.0);
+        _syncRhythmicClocks(time, { resetLead: true, resetBassPattern: true });
+      });
     } else {
       // Same arc, update intensity-dependent params
       _gameState = 'playing';
       const arc = MUSIC_ARCS[_currentArcIdx];
       const p = _getArcProgress(wave, arc);
+      const transitionTime = _getNextBarTime(ctx.currentTime + 0.02);
+      _queueTransition('arc-update', transitionTime, (time) => {
+        _currentBpm = _lerp(arc.bpm[0], arc.bpm[1], p);
 
-      _currentBpm = _lerp(arc.bpm[0], arc.bpm[1], p);
+        const fHz = _lerp(arc.filter.hz[0], arc.filter.hz[1], p);
+        const fQ = _lerp(arc.filter.Q[0], arc.filter.Q[1], p);
+        _savedFilterHz = fHz;
+        _ramp(_globalFilter.frequency, fHz, 0.5);
+        _ramp(_globalFilter.Q, fQ, 0.5);
 
-      const fHz = _lerp(arc.filter.hz[0], arc.filter.hz[1], p);
-      const fQ = _lerp(arc.filter.Q[0], arc.filter.Q[1], p);
-      _savedFilterHz = fHz;
-      _ramp(_globalFilter.frequency, fHz, 0.5);
-      _ramp(_globalFilter.Q, fQ, 0.5);
+        const lfoRate = _lerp(arc.lfo.rate[0], arc.lfo.rate[1], p);
+        _ramp(_lfo.frequency, lfoRate, 0.5);
 
-      const lfoRate = _lerp(arc.lfo.rate[0], arc.lfo.rate[1], p);
-      _ramp(_lfo.frequency, lfoRate, 0.5);
+        const bassGain = _lerp(arc.bass.gain[0], arc.bass.gain[1], p);
+        _ramp(_voices.bass.gain.gain, bassGain, 0.5);
 
-      const bassGain = _lerp(arc.bass.gain[0], arc.bass.gain[1], p);
-      _ramp(_voices.bass.gain.gain, bassGain, 0.5);
+        const harmGain = _lerp(arc.harmony.gain[0], arc.harmony.gain[1], p);
+        const justActivatedHarmony = _crossedFadeWave(previousWave, wave, arc.harmony.fadeInWave);
+        const harmFaded = arc.harmony.fadeInWave && wave < arc.harmony.fadeInWave;
+        _ramp(_voices.harmony.gain.gain, harmFaded ? 0 : harmGain, justActivatedHarmony ? 1.6 : 0.5);
 
-      const harmGain = _lerp(arc.harmony.gain[0], arc.harmony.gain[1], p);
-      const harmFaded = arc.harmony.fadeInWave && wave < arc.harmony.fadeInWave;
-      _ramp(_voices.harmony.gain.gain, harmFaded ? 0 : harmGain, 0.5);
-
-      _applyChoirParams(arc.choir, wave, 0.5);
+        _applyChoirParams(arc.choir, wave, 0.5);
+        _applyProgressionStep(time);
+        _syncRhythmicClocks(time, {});
+      });
     }
 
     const activeArc = MUSIC_ARCS[_currentArcIdx];
+    if (_crossedFadeWave(previousWave, wave, activeArc?.lead?.fadeInWave)) {
+      _startElementEntrance('lead', 1.8);
+    }
+    if (_crossedFadeWave(previousWave, wave, activeArc?.texture?.fadeInWave)) {
+      _startElementEntrance('texture', 1.6);
+    }
+    if (_crossedFadeWave(previousWave, wave, activeArc?.choir?.fadeInWave)) {
+      _startElementEntrance('choir', 2.0);
+    }
     if (wave !== previousWave && activeArc?.lead?.fadeInWave === wave) {
       _triggerLeadSpotlight(activeArc.lead.revealBeats || 6, 0.01);
     }
@@ -1770,23 +1917,32 @@ export function setMusicIntensity(intensity, wave) {
 
 export function setBossMusic(isBoss) {
   if (isBoss === _isBossMusic) return;
-  _isBossMusic = isBoss;
   if (!_voices || !_musicPlaying) return;
+  const ctx = ensureCtx();
+  const transitionTime = _getNextBarTime(ctx.currentTime + 0.02);
 
   if (isBoss) {
-    _gameState = 'boss_fight';
     _startScheduler();
-    _applyBossParams(1.5);
+    _queueTransition('boss-section', transitionTime, (time) => {
+      _isBossMusic = true;
+      _gameState = 'boss_fight';
+      _applyBossParams(1.5);
+      _syncRhythmicClocks(time, { resetLead: true, resetBassPattern: true });
+    });
   } else {
     // Return to stage music
-    _gameState = 'playing';
-    _bossPhase = 0;
-    _applyArcParams(_currentWave, 2.5);
+    _queueTransition('boss-section', transitionTime, (time) => {
+      _isBossMusic = false;
+      _gameState = 'playing';
+      _bossPhase = 0;
+      _applyArcParams(_currentWave, 2.5);
+      _syncRhythmicClocks(time, { resetLead: true, resetBassPattern: true });
+    });
   }
 }
 
 // New: notify music system of game state changes
-export function setMusicState(state) {
+export function setMusicState(state, detail) {
   if (state === 'title' && (!_voices || !_musicPlaying)) {
     // Music was destroyed (e.g. game over sequence) — restart for title
     startMusic();
@@ -1807,7 +1963,11 @@ export function setMusicState(state) {
     _gameState = 'power_select';
     _savedBpm = _currentBpm;
     _savedLeadGain = _voices.lead.gain.gain.value;
-    _currentBpm = _currentBpm * 0.85;
+    const targetBpm = _currentBpm * 0.85;
+    _queueTransition('state-tempo', _getNextBeatTime(ctx.currentTime + 0.02), (time) => {
+      _currentBpm = targetBpm;
+      _syncRhythmicClocks(time, {});
+    });
     // Lead switches to sustained root note
     const arc = MUSIC_ARCS[_currentArcIdx];
     if (arc && arc.bass) {
@@ -1821,7 +1981,10 @@ export function setMusicState(state) {
       _ramp(_globalFilter.frequency, _savedFilterHz, 0.5);
       _ramp(_voices.lead.gain.gain, _savedLeadGain, 0.5);
     } else if (_gameState === 'power_select') {
-      _currentBpm = _savedBpm;
+      _queueTransition('state-tempo', _getNextBeatTime(ctx.currentTime + 0.02), (time) => {
+        _currentBpm = _savedBpm;
+        _syncRhythmicClocks(time, {});
+      });
       // Restore lead arpeggio (scheduler will pick up new notes)
       _leadIdx = 0;
     }
@@ -1833,6 +1996,62 @@ export function setMusicState(state) {
     _ramp(_outputGain.gain, _outputGain.gain.value * 0.4, 1.0);
     _ramp(_globalFilter.frequency, 400, 1.0);
     if (_choirFilter) _ramp(_choirFilter.frequency, Math.max(350, _savedChoirCutoff * 0.75), 1.0);
+  } else if (state === 'boss_approach') {
+    const bossWave = detail?.bossWave || (_currentWave + 1);
+    const boss = BOSS_THEMES[_getBossIndex(Math.max(10, bossWave))];
+    const rootFreq = boss?.bass?.freq || boss?.bass?.freqs?.[0] || 110;
+    const harmFreq = boss?.harmony?.freq || boss?.harmony?.freqs?.[0] || rootFreq * 1.5;
+    const transitionTime = _getNextBarTime(ctx.currentTime + 0.02);
+    _queueTransition('room-boss-approach', transitionTime, (time) => {
+      _currentWave = bossWave;
+      _gameState = 'boss_approach';
+      _isBossMusic = false;
+      _currentBpm = (boss?.bpm || _currentBpm) * 0.82;
+      _voices.bass.osc.type = boss?.bass?.type || 'sine';
+      _voices.harmony.osc.type = boss?.harmony?.type || 'triangle';
+      _voices.lead.osc.type = boss?.lead?.type || 'triangle';
+      _voices.texture.osc.type = boss?.texture?.type || 'square';
+      _ramp(_voices.bass.osc.frequency, rootFreq, 1.1);
+      _ramp(_voices.harmony.osc.frequency, harmFreq, 1.1);
+      _ramp(_voices.lead.osc.frequency, rootFreq * 2, 1.1);
+      if (boss?.texture?.freq) _ramp(_voices.texture.osc.frequency, boss.texture.freq, 1.1);
+      _ramp(_voices.bass.gain.gain, Math.max(0.08, (boss?.bass?.gain || 0.16) * 0.72), 1.0);
+      _ramp(_voices.harmony.gain.gain, Math.max(0.04, (boss?.harmony?.gain || 0.1) * 0.68), 1.0);
+      _ramp(_voices.lead.gain.gain, Math.max(0.02, (boss?.lead?.gain || 0.08) * 0.34), 1.0);
+      _ramp(_voices.texture.gain.gain, Math.max(0.015, (boss?.texture?.gain || 0.06) * 0.42), 1.0);
+      _ramp(_globalFilter.frequency, Math.max(420, (boss?.filter || _savedFilterHz || 1000) * 0.7), 1.0);
+      _ramp(_globalFilter.Q, Math.max(1.4, (boss?.filterQ || 2.0) * 0.85), 1.0);
+      if (_choirFilter) _ramp(_choirFilter.frequency, Math.max(450, (_savedChoirCutoff || 1200) * 0.8), 1.0);
+      _ramp(_outputGain.gain, 0.92, 1.0);
+      _syncRhythmicClocks(time, { resetLead: true, resetBassPattern: true });
+    });
+  } else if (state === 'chapter_return') {
+    const nextWave = detail?.nextWave || Math.max(1, _currentWave + 1);
+    const transitionTime = _getNextBarTime(ctx.currentTime + 0.02);
+    _queueTransition('room-chapter-return', transitionTime, (time) => {
+      _currentWave = nextWave;
+      _isBossMusic = false;
+      _gameState = 'chapter_return';
+      _applyArcParams(nextWave, 1.5);
+      _ramp(_globalFilter.frequency, (_savedFilterHz || 1400) + 180, 0.8);
+      _ramp(_voices.texture.gain.gain, Math.max(0.01, _voices.texture.gain.gain.value * 0.72), 0.8);
+      if (_choirFilter) _ramp(_choirFilter.frequency, (_savedChoirCutoff || 1200) + 120, 0.8);
+      _syncRhythmicClocks(time, { resetLead: true, resetBassPattern: true });
+    });
+  } else if (state === 'epilogue') {
+    const transitionTime = _getNextBarTime(ctx.currentTime + 0.02);
+    _queueTransition('room-epilogue', transitionTime, (time) => {
+      _currentWave = 1;
+      _isBossMusic = false;
+      _gameState = 'epilogue';
+      _applyArcParams(1, 1.8);
+      _currentBpm *= 0.84;
+      _ramp(_voices.texture.gain.gain, Math.max(0.005, _voices.texture.gain.gain.value * 0.45), 1.1);
+      _ramp(_voices.lead.gain.gain, Math.max(0.025, _voices.lead.gain.gain.value * 0.7), 1.1);
+      _ramp(_globalFilter.frequency, (_savedFilterHz || 1500) + 240, 1.0);
+      if (_choirFilter) _ramp(_choirFilter.frequency, (_savedChoirCutoff || 1200) + 220, 1.0);
+      _syncRhythmicClocks(time, { resetLead: true, resetBassPattern: true });
+    });
   } else if (state === 'title') {
     // Transition back to title music (e.g. after game over → return to title)
     _isBossMusic = false;
@@ -1851,23 +2070,29 @@ export function notifyBossEvent(event, phase) {
   const boss = BOSS_THEMES[bIdx];
 
   if (event === 'phase_change' && phase !== undefined) {
-    _bossPhase = phase;
-    if (boss.phaseEsc) {
-      // Escalate params per phase
-      if (boss.phaseEsc.bpmAdd) _currentBpm = boss.bpm + boss.phaseEsc.bpmAdd * phase;
-      if (boss.phaseEsc.filterAdd) {
-        _ramp(_globalFilter.frequency, boss.filter + boss.phaseEsc.filterAdd * phase, 0.3);
+    const transitionTime = _getNextBarTime(ctx.currentTime + 0.02);
+    _queueTransition('boss-phase', transitionTime, (time) => {
+      _bossPhase = phase;
+      if (boss.phaseEsc) {
+        if (boss.phaseEsc.bpmAdd) _currentBpm = boss.bpm + boss.phaseEsc.bpmAdd * phase;
+        if (boss.phaseEsc.filterAdd) {
+          _ramp(_globalFilter.frequency, boss.filter + boss.phaseEsc.filterAdd * phase, 0.3);
+        }
+        if (boss.phaseEsc.texGainAdd && _voices.texture) {
+          _ramp(_voices.texture.gain.gain, boss.texture.gain + boss.phaseEsc.texGainAdd * phase, 0.3);
+        }
+        if (boss.phaseEsc.bassGainAdd && _voices.bass) {
+          _ramp(_voices.bass.gain.gain, boss.bass.gain + boss.phaseEsc.bassGainAdd * phase, 0.3);
+        }
+        if (boss.phaseEsc.leadFilterAdd) {
+          _ramp(_leadFilter.frequency, (boss.lead.cutoff || 2000) + boss.phaseEsc.leadFilterAdd * phase, 0.3);
+        }
       }
-      if (boss.phaseEsc.texGainAdd && _voices.texture) {
-        _ramp(_voices.texture.gain.gain, boss.texture.gain + boss.phaseEsc.texGainAdd * phase, 0.3);
+      if (boss.progression) {
+        _applyProgressionStep(time);
       }
-      if (boss.phaseEsc.bassGainAdd && _voices.bass) {
-        _ramp(_voices.bass.gain.gain, boss.bass.gain + boss.phaseEsc.bassGainAdd * phase, 0.3);
-      }
-      if (boss.phaseEsc.leadFilterAdd) {
-        _ramp(_leadFilter.frequency, (boss.lead.cutoff || 2000) + boss.phaseEsc.leadFilterAdd * phase, 0.3);
-      }
-    }
+      _syncRhythmicClocks(time, {});
+    });
   } else if (event === 'spawn') {
     // Hive Queen spawn event: spike texture
     if (bIdx === 0 && _voices.texture) {

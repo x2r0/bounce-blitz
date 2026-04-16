@@ -43,6 +43,7 @@ export function saveRunState(G) {
     selectedLoadout: G.meta.selectedLoadout,
     previousOffering: G.previousOffering,
     pendingEvolution: G.pendingEvolution,
+    runTelemetry: G.runTelemetry,
     player: {
       hp: p.hp,
       maxHp: p.maxHp,

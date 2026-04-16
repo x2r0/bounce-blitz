@@ -4,7 +4,7 @@ import { W, H, CLARITY } from '../config.js';
 import { rand, dist, clamp, lerp, easeOutCubic } from '../utils.js';
 import { G } from '../state.js';
 import { ctx } from '../canvas.js';
-import { isBossWave, getBossType } from './wave.js';
+import { isBossWave, getWavePlanEntry } from './wave.js';
 import { spawnParticles } from './particles.js';
 import { spawnCombatText } from './combat-text.js';
 import { events } from '../eventbus.js';
@@ -161,6 +161,64 @@ const TEMPLATES = [
   }
 ];
 
+const STORY_ONLY_TEMPLATES = [
+  {
+    name: 'ReflectionChamber',
+    slots: [
+      { type: 'flatBouncer', pctX: 0.32, pctY: 0.32, fbAngle: Math.PI / 4 },
+      { type: 'flatBouncer', pctX: 0.68, pctY: 0.32, fbAngle: -Math.PI / 4 },
+      { type: 'pillar', pctX: 0.50, pctY: 0.68 },
+      { type: 'bouncePad', pctX: 0.18, pctY: 0.58, aimAngle: 0 },
+      { type: 'bouncePad', pctX: 0.82, pctY: 0.58, aimAngle: Math.PI },
+      { type: 'hazardZone', pctX: 0.50, pctY: 0.16 },
+    ]
+  },
+  {
+    name: 'SplitField',
+    slots: [
+      { type: 'pillar', pctX: 0.50, pctY: 0.24 },
+      { type: 'pillar', pctX: 0.50, pctY: 0.76 },
+      { type: 'hazardZone', pctX: 0.50, pctY: 0.50 },
+      { type: 'bouncePad', pctX: 0.22, pctY: 0.50, aimAngle: 0 },
+      { type: 'bouncePad', pctX: 0.78, pctY: 0.50, aimAngle: Math.PI },
+    ]
+  },
+  {
+    name: 'Pinch',
+    slots: [
+      { type: 'hazardZone', pctX: 0.50, pctY: 0.50 },
+      { type: 'pillar', pctX: 0.50, pctY: 0.28 },
+      { type: 'pillar', pctX: 0.50, pctY: 0.72 },
+      { type: 'flatBouncer', pctX: 0.28, pctY: 0.50, fbAngle: 0 },
+      { type: 'flatBouncer', pctX: 0.72, pctY: 0.50, fbAngle: 0 },
+      { type: 'bouncePad', pctX: 0.50, pctY: 0.14, aimAngle: Math.PI / 2 },
+    ]
+  },
+  {
+    name: 'Spiral',
+    slots: [
+      { type: 'pillar', pctX: 0.28, pctY: 0.24 },
+      { type: 'pillar', pctX: 0.64, pctY: 0.36 },
+      { type: 'pillar', pctX: 0.42, pctY: 0.70 },
+      { type: 'flatBouncer', pctX: 0.26, pctY: 0.78, fbAngle: Math.PI / 4 },
+      { type: 'bouncePad', pctX: 0.54, pctY: 0.54, aimAngle: Math.PI / 4 },
+      { type: 'hazardZone', pctX: 0.78, pctY: 0.22 },
+    ]
+  },
+  {
+    name: 'RiftLite',
+    slots: [
+      { type: 'hazardZone', pctX: 0.18, pctY: 0.18 },
+      { type: 'hazardZone', pctX: 0.82, pctY: 0.82 },
+      { type: 'bouncePad', pctX: 0.18, pctY: 0.82, aimAngle: -Math.PI / 4 },
+      { type: 'bouncePad', pctX: 0.82, pctY: 0.18, aimAngle: 3 * Math.PI / 4 },
+      { type: 'flatBouncer', pctX: 0.50, pctY: 0.50, fbAngle: 0 },
+      { type: 'pillar', pctX: 0.35, pctY: 0.50 },
+      { type: 'pillar', pctX: 0.65, pctY: 0.50 },
+    ]
+  },
+];
+
 // --- Boss-Specific Arena Templates ---
 // These bypass selectTemplate() and per-type count caps on boss waves.
 const BOSS_TEMPLATES = {
@@ -203,6 +261,7 @@ const BOSS_TEMPLATES = {
 
 // Boss type order for endless mode cycling
 const BOSS_CYCLE = ['hive_queen', 'nexus_core', 'void_warden'];
+const TEMPLATE_REGISTRY = new Map([...TEMPLATES, ...STORY_ONLY_TEMPLATES].map(template => [template.name, template]));
 
 function getEligibleTemplates(wave) {
   return TEMPLATES.filter(t => wave >= t.minWave && wave <= t.maxWave);
@@ -223,6 +282,10 @@ function selectTemplate(wave) {
   }
   G.lastTemplateIndex = selectedGlobalIdx;
   return selected;
+}
+
+function getTemplateByKey(key) {
+  return TEMPLATE_REGISTRY.get(key) || null;
 }
 
 function jitter() { return rand(-30, 30); }
@@ -253,9 +316,6 @@ function selectBossTemplate(wave) {
 export function updateArenaModifiersForWave(wave) {
   if (!G.pillars) initArenaModifiers();
 
-  // Before wave 4, no obstacles (unless it's a boss wave, which starts at 10)
-  if (wave < 4) return;
-
   // Clear existing obstacles (they'll be placed fresh per template)
   G.pillars = [];
   G.bouncePads = [];
@@ -270,6 +330,21 @@ export function updateArenaModifiersForWave(wave) {
     }
     return;
   }
+
+  const wavePlan = getWavePlanEntry(wave);
+  if (wavePlan && Object.prototype.hasOwnProperty.call(wavePlan, 'templateKey')) {
+    if (!wavePlan.templateKey) return;
+    const authoredTemplate = getTemplateByKey(wavePlan.templateKey);
+    if (authoredTemplate) {
+      for (const slot of authoredTemplate.slots) {
+        placeSlot(slot);
+      }
+      return;
+    }
+  }
+
+  // Before wave 4, no obstacles (unless it's a boss wave, which starts at 10)
+  if (wave < 4) return;
 
   // Normal waves: get per-type counts from formulas
   const wantPillars = getPillarCount(wave);

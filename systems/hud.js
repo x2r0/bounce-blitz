@@ -6,8 +6,25 @@ import { G } from '../state.js';
 import { ctx, drawGlowText } from '../canvas.js';
 import { getEnemyCount } from '../systems/wave.js';
 
+function drawHudPanel(x, y, w, h, glow) {
+  ctx.save();
+  ctx.fillStyle = 'rgba(8, 12, 22, 0.55)';
+  ctx.beginPath();
+  ctx.roundRect(x, y, w, h, 12);
+  ctx.fill();
+  ctx.strokeStyle = glow || 'rgba(90, 160, 220, 0.28)';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.roundRect(x + 0.5, y + 0.5, w - 1, h - 1, 12);
+  ctx.stroke();
+  ctx.restore();
+}
+
 export function drawHUD() {
   const player = G.player;
+
+  drawHudPanel(8, 8, 184, G.isHardcore ? 112 : 92, 'rgba(0, 220, 255, 0.24)');
+  drawHudPanel(W - 176, 8, 168, G.combo >= 2 ? 108 : 88, 'rgba(255, 120, 180, 0.20)');
 
   // HP orbs — top-left
   for (let i = 0; i < player.maxHp; i++) {
@@ -221,37 +238,22 @@ export function drawHUD() {
     ctx.shadowOffsetX = 0; ctx.shadowOffsetY = 0;
     ctx.font = 'bold 12px ' + FONT;
     ctx.textAlign = 'left'; ctx.textBaseline = 'top';
-    ctx.fillText('◆ HARDCORE', 16, 42);
+      ctx.fillText('◆ HARDCORE', 16, 42);
     ctx.shadowBlur = 0;
     ctx.restore();
   }
 
   // Overdrive timer
   if (player.overdriveTimer > 0) {
+    const overdriveY = G.isHardcore ? 108 : 96;
     ctx.save();
     ctx.font = 'bold 12px ' + FONT;
     ctx.textAlign = 'left'; ctx.textBaseline = 'top';
     ctx.fillStyle = '#ffdd44';
     ctx.shadowColor = '#ffdd44';
     ctx.shadowBlur = 6;
-    ctx.fillText('OVERDRIVE ' + player.overdriveTimer.toFixed(1) + 's', 16, 96);
+    ctx.fillText('OVERDRIVE ' + player.overdriveTimer.toFixed(1) + 's', 16, overdriveY);
     ctx.restore();
   }
 
-  // Control hints — visible during waves 1-2, fade out after
-  if (G.wave >= 1) {
-    let hintAlpha;
-    if (G.wave <= 2) { hintAlpha = 0.6; }
-    else if (G.wave === 3) { hintAlpha = Math.max(0, 0.6 * (1 - G.waveTimer / 3)); }
-    else { hintAlpha = 0; }
-    if (hintAlpha > 0) {
-      ctx.save();
-      ctx.globalAlpha = hintAlpha;
-      ctx.font = '12px ' + FONT;
-      ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
-      ctx.fillStyle = '#555555';
-      ctx.fillText('WASD to move · Space to bounce · P to pause', W / 2, H - 12);
-      ctx.restore();
-    }
-  }
 }

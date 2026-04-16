@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>Transition Room Preview</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html, body { width: 100%; height: 100%; overflow: hidden; background: #000; }
+canvas {
+  display: block;
+  margin: auto;
+  position: absolute;
+  inset: 0;
+  object-fit: contain;
+}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<script type="module">
+import './game.js';
+import { G, resetGameState } from './state.js';
+import { enterBossApproachRoom, enterChapterReturnRoom, enterBossEpilogueRoom, previewTransitionRoomOption } from './game.js';
+
+const hash = (location.hash || '#gate10').replace(/^#/, '');
+
+setTimeout(() => {
+  resetGameState();
+  G.meta.totalRuns = 7;
+  G.meta.bestWave = 22;
+  G.meta.shards = 320;
+  G.pendingEvolution = null;
+  if (G.player) {
+    G.player.powers = [];
+  }
+
+  if (hash === 'gate20') {
+    enterBossApproachRoom(20);
+    G.transitionRoom.preludeActive = false;
+    G.transitionRoom.preludeReady = true;
+    G.transitionRoom.preludeTimer = 99;
+    previewTransitionRoomOption(1);
+  } else if (hash === 'gate30') {
+    enterBossApproachRoom(30);
+    G.transitionRoom.preludeActive = false;
+    G.transitionRoom.preludeReady = true;
+    G.transitionRoom.preludeTimer = 99;
+    previewTransitionRoomOption(1);
+  } else if (hash === 'return10') {
+    enterChapterReturnRoom(10, 'hive_queen');
+    G.transitionRoom.preludeActive = false;
+    G.transitionRoom.preludeReady = true;
+    G.transitionRoom.preludeTimer = 99;
+    previewTransitionRoomOption(0);
+  } else if (hash === 'return20') {
+    enterChapterReturnRoom(20, 'nexus_core');
+    G.transitionRoom.preludeActive = false;
+    G.transitionRoom.preludeReady = true;
+    G.transitionRoom.preludeTimer = 99;
+    previewTransitionRoomOption(1);
+  } else if (hash === 'epilogue30') {
+    enterBossEpilogueRoom(30, 'void_warden');
+    G.transitionRoom.preludeActive = false;
+    G.transitionRoom.preludeReady = true;
+    G.transitionRoom.preludeTimer = 99;
+  } else {
+    enterBossApproachRoom(10);
+    G.transitionRoom.preludeActive = false;
+    G.transitionRoom.preludeReady = true;
+    G.transitionRoom.preludeTimer = 99;
+    previewTransitionRoomOption(0);
+  }
+}, 150);
+</script>
+</body>
+</html>

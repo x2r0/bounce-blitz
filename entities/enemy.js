@@ -258,7 +258,7 @@ export function killEnemy(e, index, source) {
   G.score += points;
   triggerShake(G, 3, 0.08); G.freezeTimer = 0.03;
   spawnParticles(e.x, e.y, e.color, 8);
-  events.emit('enemyKilled', { type: e.type, points, combo: G.combo, x: e.x, y: e.y });
+  events.emit('enemyKilled', { type: e.type, points, combo: G.combo, x: e.x, y: e.y, source: source || 'other' });
 
   if (G.combo >= 2) {
     G.floatTexts.push({ text: 'x' + G.combo, x: e.x, y: e.y, size: 24, alpha: 1,

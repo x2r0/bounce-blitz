@@ -63,6 +63,8 @@ export const G = {
   runKills: 0,
   runWaves: 0,
   runPowersHeld: [],
+  runTelemetry: null,
+  runUnlockedEndlessThisRun: false,
 
   // --- Roguelike: Run summary ---
   runSummary: null,
@@ -71,6 +73,8 @@ export const G = {
   runSummaryScoreCounter: 0,
   runSummaryReady: false,
   summaryParticles: [],
+  relayChamber: null,
+  transitionRoom: null,
 
   // --- Roguelike: Meta-progression ---
   meta: loadMeta(),
@@ -88,8 +92,11 @@ export const G = {
   bossIntro: null,
   bossShardBonus: 0,
   bossClearPause: 0,
+  bossRouteShardBonus: 0,
+  bossRouteScoreBonus: 0,
   victoryPending: false,
   isVictory: false,
+  lastBossResult: null,
   sniperBeams: [],
 
   // --- Burst-and-breathe spawning ---
@@ -164,6 +171,18 @@ export const G = {
   _settingsBackBtnRect: null,    // {x,y,w,h} for back button
   _settingsHoverBack: false,
   _settingsHoverMute: false,
+  _upgradesPrevState: STATE.TITLE,
+  _relayActionRects: {},
+  _relayUpgradeRects: [],
+  _relayLoadoutRects: [],
+  _relayHoverAction: null,
+  _relayHoverUpgradeIndex: -1,
+  _relayHoverLoadoutIndex: -1,
+  _transitionOptionRects: [],
+  _transitionContinueRect: null,
+
+  // --- Story intro ---
+  storyIntro: null,
 };
 
 export function resetGameState() {
@@ -180,14 +199,14 @@ export function resetGameState() {
   if (isHardcore) {
     baseHp = 1; baseStamina = 100; scoreMod = 2.0;
   } else if (meta.selectedLoadout === 'glass_cannon') {
-    baseHp = 2; baseStamina = 130; scoreMod = 1.3;
+    baseHp = 2; baseStamina = 120; scoreMod = 1.15;
   } else if (meta.selectedLoadout === 'tank') {
-    baseHp = 5; baseStamina = 80; scoreMod = 0.8;
+    baseHp = 4; baseStamina = 85; scoreMod = 0.9;
   }
 
   // Meta upgrades — HP upgrades do NOT apply in Hardcore
   let maxHp = baseHp;
-  if (!isHardcore) {
+  if (!isHardcore && meta.selectedLoadout !== 'glass_cannon') {
     if (hasThickSkin) maxHp += 1;
     if (hasIronSkin) maxHp += 1;
   }
@@ -237,10 +256,9 @@ export function resetGameState() {
 
   // Apply starting loadout powers
   if (meta.selectedLoadout === 'glass_cannon') {
-    G.player.powers.push({ id: 'surge', level: 1 });
+    G.player.powers.push({ id: 'dashBurst', level: 1 });
   } else if (meta.selectedLoadout === 'tank') {
     G.player.powers.push({ id: 'shield', level: 1 });
-    G.player.powers.push({ id: 'shellGuard', level: 1 });
   }
 
   // Lucky Start: begin with 1 random Common power at L1
@@ -290,11 +308,22 @@ export function resetGameState() {
   G.runKills = 0;
   G.runWaves = 0;
   G.runPowersHeld = [];
+  G.runUnlockedEndlessThisRun = false;
+  G.runTelemetry = {
+    loadout: meta.selectedLoadout || 'standard',
+    isEndlessRun: !!G.isEndlessRun,
+    damageTaken: 0,
+    revivesUsed: 0,
+    waveReached: 0,
+    killSources: { player: 0, multipop: 0, chainLightning: 0, nuke: 0, other: 0 },
+  };
 
   G.runSummary = null;
   G.runSummaryTimer = 0;
   G.runSummaryShardCounter = 0;
   G.runSummaryReady = false;
+  G.relayChamber = null;
+  G.transitionRoom = null;
 
   G.usedSecondWind = false;
 
@@ -302,8 +331,11 @@ export function resetGameState() {
   G.bossIntro = null;
   G.bossShardBonus = 0;
   G.bossClearPause = 0;
+  G.bossRouteShardBonus = 0;
+  G.bossRouteScoreBonus = 0;
   G.victoryPending = false;
   G.isVictory = false;
+  G.lastBossResult = null;
   G.sniperBeams = [];
 
   G.spawnBursts = [];
@@ -347,9 +379,19 @@ export function resetGameState() {
   G.waveStartFlash = 0;
 
   G.loreSnippet = null;
+  G.storyIntro = null;
   G.endlessEntryShown = false;
   G.endlessEntryMessage = null;
   G.endlessLoreIndex = 0;
+  G._upgradesPrevState = STATE.TITLE;
+  G._relayActionRects = {};
+  G._relayUpgradeRects = [];
+  G._relayLoadoutRects = [];
+  G._relayHoverAction = null;
+  G._relayHoverUpgradeIndex = -1;
+  G._relayHoverLoadoutIndex = -1;
+  G._transitionOptionRects = [];
+  G._transitionContinueRect = null;
 
   G.currentArcIndex = -1;
   G.ambientParticles = [];
@@ -389,6 +431,14 @@ export function restoreRunState() {
   G.isEndlessRun = saved.isEndlessRun || false;
   G.previousOffering = saved.previousOffering || [];
   G.pendingEvolution = saved.pendingEvolution || null;
+  G.runTelemetry = saved.runTelemetry || {
+    loadout: inferredLoadout,
+    isEndlessRun: !!saved.isEndlessRun,
+    damageTaken: 0,
+    revivesUsed: saved.usedSecondWind ? 1 : 0,
+    waveReached: saved.wave || 0,
+    killSources: { player: 0, multipop: 0, chainLightning: 0, nuke: 0, other: 0 },
+  };
 
   const sp = saved.player;
   G.player.hp = sp.hp;
@@ -403,6 +453,7 @@ export function restoreRunState() {
   // Resume at wave break before current wave
   G.state = STATE.WAVE_BREAK;
   G.waveBreakTimer = G.isHardcore ? 1.0 : 1.5;
+  G.storyIntro = null;
 
   // If restoring past wave 30, mark endless entry as already shown
   if (saved.wave > 31 && G.isEndlessRun) {

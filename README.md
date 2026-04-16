@@ -39,6 +39,8 @@ You control a bouncing orb in a compact arena. Drift into position, then **dash*
 
 Fight through **30 waves** of increasingly dangerous enemies. Every 10 waves, face a powerful boss. Clear Wave 30 to complete the story.
 
+Story Mode now uses an **authored encounter progression** rather than relying only on broad scaling. Arena layouts, enemy compositions, and pacing are paired wave-by-wave so later waves feel more like tactical combat problems and less like simple stat escalation.
+
 ### Endless Mode
 
 Unlocked by purchasing the **Endless Mode** upgrade (1000 shards). After Wave 30, the waves keep going — enemies get tougher, bosses cycle back with more HP and speed, and shard rewards increase.

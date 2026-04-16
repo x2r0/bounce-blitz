@@ -240,7 +240,7 @@ export function damagePlayer(sourceX, sourceY) {
           G.comboTimer = 1.5;
           G.score += e.points * G.combo;
           spawnParticles(e.x, e.y, e.color, 8);
-          events.emit('enemyKilled', { type: e.type, points: e.points * G.combo, combo: G.combo, x: e.x, y: e.y });
+          events.emit('enemyKilled', { type: e.type, points: e.points * G.combo, combo: G.combo, x: e.x, y: e.y, source: 'reflectiveShield' });
         }
       }
     }
@@ -248,6 +248,7 @@ export function damagePlayer(sourceX, sourceY) {
   }
 
   player.hp--;
+  if (G.runTelemetry) G.runTelemetry.damageTaken++;
   player.invTimer = 2; player.flashTimer = 2;
   player.eyeWideTimer = 0.3;
   const dx = player.x - sourceX, dy = player.y - sourceY;
@@ -260,6 +261,7 @@ export function damagePlayer(sourceX, sourceY) {
     // Second Wind check — disabled in Hardcore
     if (!G.isHardcore && !G.usedSecondWind && G.meta.unlocks.includes(11)) {
       G.usedSecondWind = true;
+      if (G.runTelemetry) G.runTelemetry.revivesUsed++;
       player.hp = 1;
       player.invTimer = 3.0;
       player.flashTimer = 3.0;

@@ -1082,7 +1082,8 @@ export function defeatBoss(boss) {
   const isEndlessFinalBoss = boss.bossType === 'void_warden' && boss.wave > 30;
 
   // Points
-  G.score += def.points;
+  const routeScoreBonus = G.bossRouteScoreBonus || 0;
+  G.score += def.points + Math.round(def.points * routeScoreBonus);
   spawnParticles(boss.x, boss.y, boss.color, isFinalBoss ? 24 : 16);
 
   // Shards
@@ -1094,7 +1095,17 @@ export function defeatBoss(boss) {
     shardBonus = def.firstTimeShards + scaling.shardBonus;
     G.meta[bossKey] = true;
   }
+  shardBonus += G.bossRouteShardBonus || 0;
   G.bossShardBonus = (G.bossShardBonus || 0) + shardBonus;
+  G.lastBossResult = {
+    bossWave: boss.wave,
+    bossType: boss.bossType,
+    nextWave: boss.wave + 1,
+    isFinalBoss,
+    isEndlessFinalBoss,
+  };
+  G.bossRouteShardBonus = 0;
+  G.bossRouteScoreBonus = 0;
 
   // Power gem drop (100% on boss kill)
   spawnPowerGem(boss.x, boss.y, { common: 15, rare: 50, epic: 35 });
@@ -1110,6 +1121,7 @@ export function defeatBoss(boss) {
     if (!G.meta.unlocks.includes(15)) {
       G.meta.unlocks.push(15);
       G.meta.endlessUnlocked = true;
+      G.runUnlockedEndlessThisRun = true;
     }
     G.victoryPending = true;
   } else {
@@ -1131,18 +1143,13 @@ export function updateBossClearPause(dt) {
     if (G.bossClearPause <= 0) {
       if (G.victoryPending) {
         G.victoryPending = false;
-        // Victory — show victory run summary
-        G.state = STATE.RUN_SUMMARY;
         G.isVictory = true;
-        events.emit('victory', {});
-        return true;
+        return 'victory';
       }
-      // Normal boss clear — resume power select
-      G.state = STATE.POWER_SELECT;
-      return true;
+      return 'cleared';
     }
   }
-  return false;
+  return null;
 }
 
 // --- Draw Boss HP Bar ---

@@ -1,6 +1,6 @@
 'use strict';
 
-import { W, H, FONT, BOOST_COLORS, STAMINA_MAX } from '../config.js';
+import { W, H, FONT, BOOST_COLORS, STAMINA_MAX, STATE } from '../config.js';
 import { dist } from '../utils.js';
 import { G } from '../state.js';
 import { ctx } from '../canvas.js';
@@ -203,8 +203,11 @@ export function isBoostActive(type) {
 }
 
 export function getScoreMultiplier() {
-  if (isBoostActive('pointFrenzy')) return 3;
-  return 1;
+  let mul = isBoostActive('pointFrenzy') ? 3 : 1;
+  if (G.state === STATE.BOSS_FIGHT && G.bossRouteScoreBonus > 0) {
+    mul *= (1 + G.bossRouteScoreBonus);
+  }
+  return mul;
 }
 
 export function isInvincibleFromBoost() {

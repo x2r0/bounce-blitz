@@ -1,9 +1,14 @@
 'use strict';
 
-import { W, H, STATE, FONT, MAX_POWER_SLOTS, CLARITY, SURGE_ACTIVE_SPEED_THRESHOLD } from './config.js';
+import {
+  W, H, STATE, FONT, MAX_POWER_SLOTS, CLARITY, SURGE_ACTIVE_SPEED_THRESHOLD, ENEMY_COLORS,
+  CHARGE_TAP_THRESHOLD, CHARGE_MAX_DURATION, CHARGE_SPEED_MIN, CHARGE_SPEED_MAX,
+  CHARGE_GRACE_MIN, CHARGE_GRACE_MAX, CHARGE_RECOVERY_MIN, CHARGE_RECOVERY_MAX,
+  IDLE_FRICTION
+} from './config.js';
 import { rand, dist, lerp, formatScore, formatTime } from './utils.js';
 import { events } from './eventbus.js';
-import { G } from './state.js';
+import { G, resetGameState } from './state.js';
 import { ctx, gridCanvas, drawGlowText } from './canvas.js';
 import { hasSavedRun, clearRunState, loadSettings } from './systems/save.js';
 
@@ -11,8 +16,8 @@ import { updatePlayer, damagePlayer, drawPlayer } from './entities/player.js';
 import { spawnEnemy, updateEnemies, killEnemy, hitEnemy, drawEnemies } from './entities/enemy.js';
 import { updatePowerUps, drawPowerUps } from './entities/powerup.js';
 
-import { startNextWave, pickEnemyType, getEnemyCount, isBossWave, drawBurstTexts, updateBurstSpawning, getWaveBreakDuration } from './systems/wave.js';
-import { startBossIntro, updateBossIntro, skipBossIntro, drawBossIntro,
+import { startNextWave, pickEnemyType, getEnemyCount, isBossWave, getBossType, drawBurstTexts, updateBurstSpawning, getWaveBreakDuration } from './systems/wave.js';
+import { BOSS_DEFS, startBossIntro, updateBossIntro, skipBossIntro, drawBossIntro,
   updateBossReady, drawBossReady, confirmBossReady,
   updateBoss, updateBossClearPause, hitBoss, defeatBoss, drawBossHPBar, drawBossExtras,
   checkMirrorCopyCollisions,
@@ -32,7 +37,7 @@ import { drawHUD } from './systems/hud.js';
 import { drawPowerSelectScreen, drawPowerIcon } from './systems/cards.js';
 import { updateCombatTexts, drawCombatTexts } from './systems/combat-text.js';
 import { POWER_DEFS, EVOLUTION_RECIPES, generateOffering, checkEvolutionAvailable, createEvolutionCard, applyPowerPick, applyWaveStartPowers, resetWaveCounters } from './systems/powers.js';
-import { calculateRunBonusShards, applyShardMagnetBonus, saveMeta, getCheapestLockedUpgrade, UPGRADES, canPurchaseUpgrade, purchaseUpgrade, LOADOUTS, isLoadoutUnlocked, isTierUnlocked, canPurchaseHardcore, purchaseHardcore, getHardcoreWaveMilestoneBonus } from './systems/meta.js';
+import { calculateRunBonusShards, applyShardMagnetBonus, saveMeta, getCheapestLockedUpgrade, UPGRADES, canPurchaseUpgrade, purchaseUpgrade, LOADOUTS, isLoadoutUnlocked, isTierUnlocked, canPurchaseHardcore, purchaseHardcore, getHardcoreWaveMilestoneBonus, getUnlockedCountForTier, TIER_REQUIREMENTS, recordRunAnalytics, recordStoryIntroSkip } from './systems/meta.js';
 import { spawnCombatText } from './systems/combat-text.js';
 import {
   onEnemyKilled as boostOnEnemyKilled,
@@ -52,7 +57,7 @@ import {
   showEndlessEntryMessage, updateEndlessEntryMessage, drawEndlessEntryMessage
 } from './systems/lore.js';
 import {
-  resumeAudio, sfxDash, sfxBounce, sfxEnemyKill, sfxComboKill,
+  ensureTitleMusicStarted, sfxDash, sfxBounce, sfxEnemyKill, sfxComboKill,
   sfxCardPick, sfxShieldBlock, sfxShieldBreak, sfxDamageTaken,
   sfxWaveClear, sfxBossIntro, sfxBossHit, sfxBossPhaseTransition,
   sfxBossDefeat, sfxGameOver, sfxShardCollect, sfxEvolutionUnlock, sfxBoostCollect,
@@ -115,6 +120,121 @@ let transitionDir = 0; // 1 = fading in (to black), -1 = fading out (from black)
 let transitionSpeed = 4;
 let transitionCallback = null;
 
+const RELAY_LORE_LINES = [
+  ['The relay steadies your shell.', 'The core is still calling.'],
+  ['The chamber catches your return.', 'The grid is ready again.'],
+  ['Shards settle into the relay frame.', 'Your next descent can be cleaner.'],
+  ['The loop releases you for a breath.', 'Then asks you to go back in.'],
+];
+
+const RELAY_UPGRADE_COPY = {
+  1: '+1 max HP',
+  2: '+25 drift max speed',
+  3: '+15 max stamina',
+  4: 'Show rarity borders',
+  5: 'Start with 1 common power',
+  6: '95% wall velocity',
+  7: '+25% shard earnings',
+  8: '+1 max HP again',
+  9: 'Dash cooldown to 0.12s',
+  10: 'Boost rare and epic odds',
+  11: 'One revive per run',
+  12: 'Show evolution recipes',
+  13: 'Start with a chosen power',
+  14: 'Longer combo timer',
+  15: 'Play past Wave 30',
+};
+
+const TRANSITION_LORE = {
+  boss_approach: {
+    hive_queen: [
+      ['The chamber narrows toward the brood gate.', 'The swarm is already listening.'],
+      ['The courier steadies at the threshold.', 'The hive answers with motion.'],
+    ],
+    nexus_core: [
+      ['The processor gate hums ahead.', 'Every signal inside it wants to fold you in.'],
+      ['The chamber strips to a hard line.', 'The core beyond it is already awake.'],
+    ],
+    void_warden: [
+      ['The relay thins into black glass.', 'Something immense is holding the center.'],
+      ['The chamber goes quiet before the last gate.', 'The void is waiting where the core should be.'],
+    ],
+  },
+  chapter_return: {
+    hive_queen: [
+      ['The brood gate collapses behind you.', 'The relay threads a cleaner route forward.'],
+      ['The chamber cools as the swarm breaks.', 'A new line through the grid opens.'],
+    ],
+    nexus_core: [
+      ['The processor goes dim behind the relay glass.', 'A calmer signal begins to pull you on.'],
+      ['The chamber catches the aftershock.', 'The next sector lights up ahead.'],
+    ],
+  },
+  epilogue: {
+    void_warden: [
+      ['The chamber stops shaking at last.', 'The core is still there.'],
+      ['The courier returns carrying silence and light.', 'The loop can breathe again.'],
+    ],
+  },
+};
+
+const TRANSITION_REWARD_COPY = {
+  shield: 'Shield the shell against the next sector.',
+  magnet: 'Draw the field tighter around the courier.',
+  surge: 'Sharpen the drift into a faster line.',
+  multipop: 'Turn breakpoints into chain collapse.',
+  chainLightning: 'Arc pressure through clustered constructs.',
+  timeWarp: 'Stretch danger into readable motion.',
+  dashBurst: 'Punch harder through crowded lanes.',
+  shellGuard: 'Orbit a defensive shell around the core.',
+  lifeSteal: 'Recover on clean impact.',
+  staminaOverflow: 'Carry a deeper reserve into the grid.',
+  overdrive: 'Spike tempo when the run is on fire.',
+  soulHarvest: 'Leave a harvest trail through pressure.',
+  gravityBomb: 'Collapse space around a problem point.',
+  thunderDash: 'Turn the dash line into thunder.',
+  reflectiveShield: 'Reflect pressure back into the loop.',
+  novaCore: 'Build a larger orbiting shell.',
+};
+
+const TRANSITION_ROUTE_WHISPERS = {
+  boss_approach: {
+    steady: 'Stability holds the shell together.',
+    risk: 'A shorter line pays only if you survive it.',
+  },
+  chapter_return: {
+    signal_cache: 'Bank the fragment and keep moving.',
+    evolution: 'Take the finished pattern before the chamber cools.',
+  },
+};
+
+const EPILOGUE_REVEAL_LINES = [
+  'The core was never dark.',
+  'It was buried under a defense that forgot what it was guarding.',
+  'The Void Warden falls. The signal holds.',
+  'The grid remembers.',
+  'When it calls again, the line will open.',
+];
+
+const TRANSITION_REWARD_TAGS = {
+  shield: ['Block Hit', 'Safe Route'],
+  magnet: ['Pickup Pull', 'Control'],
+  surge: ['Faster Drift', 'Tempo'],
+  multipop: ['Chain Burst', 'Clear'],
+  chainLightning: ['Arc Damage', 'Crowd'],
+  timeWarp: ['Slow Field', 'Control'],
+  dashBurst: ['Dash Impact', 'Aggro'],
+  shellGuard: ['Orbit Shield', 'Safe Route'],
+  lifeSteal: ['On-Hit Heal', 'Sustain'],
+  staminaOverflow: ['Deep Reserve', 'Endurance'],
+  overdrive: ['Speed Spike', 'Aggro'],
+  soulHarvest: ['Harvest Heal', 'Sustain'],
+  gravityBomb: ['Pull Field', 'Control'],
+  thunderDash: ['Shock Trail', 'Aggro'],
+  reflectiveShield: ['Reflect Hit', 'Safe Route'],
+  novaCore: ['Large Orbit', 'Fortress'],
+};
+
 export function startTransition(callback, speed) {
   transitionAlpha = 0;
   transitionDir = 1;
@@ -142,6 +262,1193 @@ function drawTransition() {
   ctx.globalAlpha = transitionAlpha;
   ctx.fillStyle = '#000000';
   ctx.fillRect(0, 0, W, H);
+  ctx.restore();
+}
+
+function finishStoryIntro(skipped = false) {
+  if (!G.storyIntro) return;
+  if (skipped) {
+    recordStoryIntroSkip(G.meta);
+    saveMeta(G.meta);
+  }
+  G.joystick.active = false;
+  G.joystick.touchId = null;
+  G.joystick.dx = 0;
+  G.joystick.dy = 0;
+  G.storyIntro = null;
+  startTransition(() => {
+    resetGameState();
+    startMusic();
+  }, 5);
+}
+
+function canShowRelayChamber() {
+  const s = G.runSummary;
+  return !!(s && !s.isVictory && !s.isEndlessRun);
+}
+
+function trimRelayText(text, maxChars) {
+  if (!text || text.length <= maxChars) return text || '';
+  return text.slice(0, Math.max(0, maxChars - 1)).trimEnd() + '…';
+}
+
+function wrapRelayText(text, maxWidth, maxLines = 2) {
+  const words = String(text || '').split(/\s+/).filter(Boolean);
+  if (words.length === 0) return [''];
+  const lines = [];
+  let truncated = false;
+  let current = words[0];
+  for (let i = 1; i < words.length; i++) {
+    const next = current + ' ' + words[i];
+    if (ctx.measureText(next).width <= maxWidth) {
+      current = next;
+    } else {
+      lines.push(current);
+      current = words[i];
+      if (lines.length === maxLines - 1) {
+        truncated = i < words.length - 1;
+        break;
+      }
+    }
+  }
+  const consumedWords = lines.join(' ').split(/\s+/).filter(Boolean).length;
+  const remaining = words.slice(consumedWords);
+  if (lines.length < maxLines && remaining.length > 0) {
+    current = remaining.join(' ');
+  }
+  while (ctx.measureText(current).width > maxWidth && current.length > 1) {
+    current = current.slice(0, -1);
+    truncated = true;
+  }
+  if (truncated) {
+    current = current.trimEnd().replace(/[.,;:!?-]*$/, '') + '…';
+    while (ctx.measureText(current).width > maxWidth && current.length > 1) {
+      current = current.slice(0, -2).trimEnd() + '…';
+    }
+  }
+  lines.push(current);
+  return lines.slice(0, maxLines);
+}
+
+function wrapRelayParagraphs(text, maxWidth, maxLinesPerParagraph = 2) {
+  const parts = String(text || '')
+    .split('\n')
+    .map(part => part.trim())
+    .filter(Boolean);
+  if (parts.length === 0) return [''];
+  const lines = [];
+  for (const part of parts) {
+    const wrapped = wrapRelayText(part, maxWidth, maxLinesPerParagraph);
+    for (const line of wrapped) lines.push(line);
+  }
+  return lines;
+}
+
+function getEpilogueRevealDuration(text, isLast = false) {
+  const base = Math.max(2.1, Math.min(4.2, 1.4 + String(text || '').length * 0.028));
+  return isLast ? base + 0.8 : base;
+}
+
+function getRelayFittedFont(text, maxWidth, startSize, minSize, weight = 'bold') {
+  let size = startSize;
+  while (size > minSize) {
+    ctx.font = `${weight} ${size}px ${FONT}`;
+    if (ctx.measureText(text).width <= maxWidth) break;
+    size -= 1;
+  }
+  return `${weight} ${Math.max(size, minSize)}px ${FONT}`;
+}
+
+function getRelayQuickUpgradeIds(limit = 4) {
+  const locked = UPGRADES.filter(u => !G.meta.unlocks.includes(u.id));
+  const affordable = locked
+    .filter(u => isTierUnlocked(G.meta, u.tier) && G.meta.shards >= u.cost)
+    .sort((a, b) => a.cost - b.cost || a.tier - b.tier || a.id - b.id);
+  const nearbyLocked = locked
+    .filter(u => !affordable.some(a => a.id === u.id))
+    .sort((a, b) => {
+      const tierDelta = (isTierUnlocked(G.meta, a.tier) ? 0 : 1000) - (isTierUnlocked(G.meta, b.tier) ? 0 : 1000);
+      return tierDelta || a.cost - b.cost || a.tier - b.tier || a.id - b.id;
+    });
+  return affordable.concat(nearbyLocked).slice(0, limit).map(u => u.id);
+}
+
+export function refreshRelayChamber() {
+  if (!G.relayChamber) return;
+  G.relayChamber.quickUpgradeIds = getRelayQuickUpgradeIds(4);
+  G.relayChamber.totalShards = G.meta.shards;
+  if (G.relayChamber.quickUpgradeIds.length === 0) {
+    G.relayChamber.upgradeIndex = 0;
+  } else {
+    G.relayChamber.upgradeIndex = Math.min(
+      G.relayChamber.upgradeIndex || 0,
+      G.relayChamber.quickUpgradeIds.length - 1
+    );
+  }
+  const selectedLoadoutIndex = Math.max(0, LOADOUTS.findIndex(l => l.id === G.meta.selectedLoadout));
+  if (typeof G.relayChamber.loadoutIndex !== 'number' || G.relayChamber.loadoutIndex < 0) {
+    G.relayChamber.loadoutIndex = selectedLoadoutIndex;
+  }
+}
+
+export function enterRelayChamber() {
+  if (!G.runSummary) return;
+  const selectedLoadoutIndex = Math.max(0, LOADOUTS.findIndex(l => l.id === G.meta.selectedLoadout));
+  G.relayChamber = {
+    shardGain: G.runSummary.total,
+    totalShards: G.meta.shards,
+    loreIndex: (G.meta.totalRuns + G.runSummary.waves + G.runSummary.kills) % RELAY_LORE_LINES.length,
+    quickUpgradeIds: [],
+    focusSection: 'cta',
+    ctaIndex: 0,
+    upgradeIndex: 0,
+    loadoutIndex: selectedLoadoutIndex,
+    returnTarget: STATE.RELAY_CHAMBER,
+  };
+  G._relayHoverAction = null;
+  G._relayHoverUpgradeIndex = -1;
+  G._relayHoverLoadoutIndex = -1;
+  G._relayActionRects = {};
+  G._relayUpgradeRects = [];
+  G._relayLoadoutRects = [];
+  refreshRelayChamber();
+  setMusicState('title');
+  G.state = STATE.RELAY_CHAMBER;
+}
+
+export function startRunFromRelayChamber() {
+  const mode = G.runSummary?.mode || 'story';
+  startTransition(() => {
+    G.relayChamber = null;
+    G.isEndlessRun = mode === 'endless';
+    resetGameState();
+    startMusic();
+  }, 5);
+}
+
+function getActLabel(index) {
+  const numerals = ['I', 'II', 'III', 'IV', 'V'];
+  return 'Act ' + (numerals[index] || String(index + 1));
+}
+
+function getTransitionLoreLines(mode, bossType, seed) {
+  const pool = TRANSITION_LORE[mode]?.[bossType] || [['The relay holds for a breath.', 'Then asks you to move again.']];
+  return pool[(seed || 0) % pool.length];
+}
+
+function buildTransitionRouteNodes(mode, actIndex, bossWave, bossType) {
+  const bossDef = BOSS_DEFS[bossType];
+  const currentLabel = getActLabel(Math.max(0, actIndex));
+  const nextLabel = mode === 'epilogue' ? 'Relay' : getActLabel(Math.min(3, actIndex + 1));
+  const bossLabel = bossDef?.name || 'Gate';
+  return [
+    { x: 470, y: 214, label: currentLabel, state: mode === 'boss_approach' ? 'active' : 'cleared', kind: 'act' },
+    { x: 596, y: 166, label: bossLabel, state: mode === 'chapter_return' || mode === 'epilogue' ? 'broken' : 'threat', kind: 'boss' },
+    { x: 712, y: 228, label: nextLabel, state: mode === 'boss_approach' ? 'dim' : 'lit', kind: mode === 'epilogue' ? 'relay' : 'act' },
+  ];
+}
+
+function buildBossApproachOptions(bossWave) {
+  const shardBonus = bossWave === 30 ? 40 : 20;
+  return [
+    {
+      id: 'steady',
+      routeLabel: 'Steady Route',
+      title: 'Seal the shell',
+      accent: '#72e2ff',
+      summary: ['Recover 1 HP and refill stamina.', 'Enter the gate stable and ready.'],
+    },
+    {
+      id: 'risk',
+      routeLabel: 'Risk Route',
+      title: 'Cut the shortest line',
+      accent: '#ff9b7c',
+      summary: [`Boss payout: +${shardBonus} shards.`, 'Carry +10% score into the fight.'],
+      shardBonus,
+      scoreBonus: 0.10,
+    },
+  ];
+}
+
+function buildTransitionRewardOptions() {
+  const options = [];
+  if (G.pendingEvolution) {
+    events.emit('evolutionOffered', { recipeId: G.pendingEvolution.id });
+    options.push({
+      id: 'evolution:' + G.pendingEvolution.id,
+      kind: 'power',
+      card: createEvolutionCard(G.pendingEvolution),
+      routeLabel: 'Evolve the frame',
+      title: G.pendingEvolution.name,
+      accent: '#ffd86f',
+      summary: ['Fuse the chamber into a stronger form.', 'Carry a finished pattern into the next act.'],
+    });
+    G.pendingEvolution = null;
+  }
+
+  const offering = generateOffering(G.wave, G.meta);
+  for (const card of offering) {
+    if (options.length >= 2) break;
+    if (card.isEvolution) continue;
+    if (options.some(option => option.card?.powerId === card.powerId)) continue;
+    events.emit('powerOffered', { powerId: card.powerId });
+    options.push({
+      id: 'power:' + card.powerId,
+      kind: 'power',
+      card,
+      routeLabel: 'Tune the chamber',
+      title: card.name,
+      accent: card.color || '#8dd8ff',
+      summary: [
+        TRANSITION_REWARD_COPY[card.powerId] || trimRelayText(card.desc || 'Carry a stronger line into the next act.', 54),
+        'Commit this route before the grid closes again.',
+      ],
+    });
+  }
+
+  while (options.length < 2) {
+    options.push({
+      id: 'signal_cache:' + options.length,
+      kind: 'signal_cache',
+      routeLabel: 'Signal Cache',
+      title: 'Bank a clean fragment',
+      accent: '#ffd86f',
+      shardBonus: 20,
+      summary: ['Collect +20 shards immediately.', 'Take a smaller edge and redeploy fast.'],
+    });
+  }
+  return options.slice(0, 2);
+}
+
+function clearTransitionRoomUi() {
+  G._transitionOptionRects = [];
+  G._transitionContinueRect = null;
+}
+
+function getTransitionRouteWhisper(mode, option) {
+  if (!option) return '';
+  if (mode === 'boss_approach') {
+    return TRANSITION_ROUTE_WHISPERS.boss_approach[option.id] || '';
+  }
+  if (mode === 'chapter_return') {
+    if (option.kind === 'signal_cache') return TRANSITION_ROUTE_WHISPERS.chapter_return.signal_cache;
+    if (option.card?.isEvolution) return TRANSITION_ROUTE_WHISPERS.chapter_return.evolution;
+    if (option.card?.powerId) {
+      const summary = TRANSITION_REWARD_COPY[option.card.powerId];
+      if (summary) return summary;
+    }
+  }
+  return option.summary?.[0] || '';
+}
+
+function getTransitionOptionChips(mode, option) {
+  if (!option) return [];
+  if (mode === 'boss_approach') {
+    return option.id === 'steady'
+      ? ['+1 HP', 'Full Stamina']
+      : [`+${option.shardBonus || 20} Shards`, 'Score +10%'];
+  }
+  if (option.kind === 'signal_cache') {
+    return ['+20 Shards', 'Immediate'];
+  }
+  if (option.card?.isEvolution) {
+    return ['Evolution', 'Route Gain'];
+  }
+  if (option.card?.powerId) {
+    return TRANSITION_REWARD_TAGS[option.card.powerId] || ['Power Gain', 'Route Gain'];
+  }
+  return [];
+}
+
+function createTransitionRoom(mode, bossWave, bossType) {
+  const actIndex = Math.max(0, Math.floor(bossWave / 10) - 1);
+  const bossDef = BOSS_DEFS[bossType];
+  const loreLines = getTransitionLoreLines(mode, bossType, G.meta.totalRuns + bossWave);
+  const title = mode === 'boss_approach'
+    ? 'BOSS GATE'
+    : mode === 'chapter_return'
+      ? 'RETURN CHAMBER'
+      : 'THE LIGHT HOLDS';
+  const subtitle = mode === 'boss_approach'
+    ? (bossDef?.name || 'Unknown boss')
+    : mode === 'chapter_return'
+      ? 'The relay opens the next route.'
+      : 'The chamber still remembers your line.';
+  const roomAccent = mode === 'boss_approach'
+    ? '#ff9b7c'
+    : mode === 'chapter_return'
+      ? '#7ce3ff'
+      : '#ffd86f';
+  const arrivalLine = loreLines[0] || subtitle;
+  const followLine = loreLines[1] || '';
+  const continueLabel = mode === 'boss_approach'
+    ? 'Open the gate'
+    : mode === 'chapter_return'
+      ? 'Step into the next act'
+      : 'Return to the relay ledger';
+  const options = mode === 'boss_approach'
+    ? buildBossApproachOptions(bossWave)
+    : mode === 'chapter_return'
+      ? buildTransitionRewardOptions()
+      : [];
+  const gates = options.map((option, index) => ({
+    x: index === 0 ? W * 0.29 : W * 0.71,
+    y: mode === 'boss_approach'
+      ? (index === 0 ? H * 0.50 : H * 0.38)
+      : (index === 0 ? H * 0.47 : H * 0.35),
+    r: 30,
+    commitRadius: 48,
+    optionIndex: index,
+    accent: option.accent || '#7ce3ff',
+  }));
+  const exitGate = mode === 'epilogue'
+    ? { x: W * 0.5, y: H * 0.23, r: 34, commitRadius: 52, accent: '#ffd86f' }
+    : null;
+  return {
+    mode,
+    bossWave,
+    bossType,
+    actIndex,
+    nextWave: bossWave + (mode === 'chapter_return' ? 1 : 0),
+    title,
+    subtitle,
+    arrivalLine,
+    followLine,
+    loreLines,
+    musicCue: mode,
+    routeNodes: buildTransitionRouteNodes(mode, actIndex, bossWave, bossType),
+    options,
+    gates,
+    exitGate,
+    spawn: { x: W * 0.5, y: H * 0.78 },
+    seal: { x: W * 0.5, y: H * 0.92 },
+    bossGate: mode === 'boss_approach' ? { x: W * 0.5, y: H * 0.17 } : null,
+    cursor: 0,
+    hoverIndex: -1,
+    selectedIndex: -1,
+    continueLabel,
+    continueWhisper: mode === 'epilogue' ? 'The relay holds. Step out of the chamber.' : '',
+    preludeActive: true,
+    preludeTimer: 0,
+    preludeReady: false,
+    preludeAdvanceDelay: 1.15,
+    outroActive: false,
+    outroTimer: 0,
+    outroDuration: 0.72,
+    outroResolved: false,
+    outroLineIndex: 0,
+    outroLineDuration: 0,
+    controlDelay: 0.22,
+    commitLine: '',
+    commitColor: roomAccent,
+    returnTarget: mode === 'epilogue' ? STATE.RUN_SUMMARY : (mode === 'boss_approach' ? STATE.BOSS_INTRO_CARD : STATE.WAVE_BREAK),
+  };
+}
+
+function enterTransitionRoom(mode, bossWave, bossType) {
+  G.transitionRoom = createTransitionRoom(mode, bossWave, bossType);
+  if (G.player) {
+    G.player.x = G.transitionRoom.spawn.x;
+    G.player.y = G.transitionRoom.spawn.y;
+    G.player.vx = 0;
+    G.player.vy = 0;
+    G.player.dashCharging = false;
+    G.player.dashChargeTime = 0;
+    G.player.stamina = G.player.maxStamina;
+  }
+  clearTransitionRoomUi();
+  setMusicState(mode, { bossWave, nextWave: bossWave + 1 });
+  G.state = STATE.TRANSITION_ROOM;
+}
+
+export function enterBossApproachRoom(bossWave) {
+  enterTransitionRoom('boss_approach', bossWave, getBossType(bossWave));
+}
+
+export function enterChapterReturnRoom(bossWave, bossType) {
+  enterTransitionRoom('chapter_return', bossWave, bossType || getBossType(bossWave));
+}
+
+export function enterBossEpilogueRoom(bossWave, bossType) {
+  enterTransitionRoom('epilogue', bossWave, bossType || getBossType(bossWave));
+}
+
+export function chooseTransitionRoomOption(index) {
+  const room = G.transitionRoom;
+  if (!room) return;
+  if (room.preludeActive || room.outroActive || room.mode === 'epilogue' || room.selectedIndex >= 0) return;
+  const option = room.options?.[index];
+  if (!option) return;
+
+  room.selectedIndex = index;
+  room.cursor = index;
+  room.commitLine = getTransitionRouteWhisper(room.mode, option);
+  room.commitColor = option.accent || '#ffffff';
+  room.outroActive = true;
+  room.outroTimer = 0;
+  room.outroResolved = false;
+  if (G.player) {
+    G.player.vx = 0;
+    G.player.vy = 0;
+  }
+}
+
+export function previewTransitionRoomOption(index) {
+  if (!G.transitionRoom) return;
+  G.transitionRoom.hoverIndex = index;
+  if (index >= 0 && G.transitionRoom.options?.length) {
+    G.transitionRoom.cursor = index;
+  }
+}
+
+export function advanceTransitionRoomPrelude() {
+  const room = G.transitionRoom;
+  if (!room || !room.preludeActive || !room.preludeReady) return;
+  sfxUIClick();
+  room.preludeActive = false;
+  room.controlDelay = Math.max(room.controlDelay || 0, 0.12);
+}
+
+export function continueTransitionRoom() {
+  if (!G.transitionRoom || G.transitionRoom.preludeActive || G.transitionRoom.outroActive || G.transitionRoom.mode !== 'epilogue' || G.transitionRoom.selectedIndex >= 0) return;
+  sfxUIClick();
+  G.transitionRoom.selectedIndex = 0;
+  G.transitionRoom.commitLine = EPILOGUE_REVEAL_LINES[0];
+  G.transitionRoom.commitColor = G.transitionRoom.exitGate?.accent || '#ffd86f';
+  G.transitionRoom.outroActive = true;
+  G.transitionRoom.outroTimer = 0;
+  G.transitionRoom.outroResolved = false;
+  G.transitionRoom.outroLineIndex = 0;
+  G.transitionRoom.outroLineDuration = getEpilogueRevealDuration(
+    EPILOGUE_REVEAL_LINES[0],
+    EPILOGUE_REVEAL_LINES.length === 1
+  );
+  if (G.player) {
+    G.player.vx = 0;
+    G.player.vy = 0;
+  }
+}
+
+export function advanceStoryIntro() {
+  if (G.state !== STATE.STORY_INTRO || !G.storyIntro) return;
+  const intro = G.storyIntro;
+  ensureStoryIntroState(intro);
+  if (!intro.canAdvance) return;
+  if (intro.beat === 0) {
+    intro.beat = 1;
+    intro.beatStartedAt = intro.timer;
+    intro.canAdvance = false;
+    intro.player.eyeWideTimer = 0.9;
+    return;
+  }
+  if (intro.beat === 2) {
+    intro.beat = 3;
+    intro.beatStartedAt = intro.timer;
+    intro.canAdvance = false;
+    primeStoryIntroBreakthrough(intro);
+    return;
+  }
+  if (intro.beat === 3) {
+    intro.beat = 4;
+    intro.beatStartedAt = intro.timer;
+    intro.canAdvance = false;
+    intro.player.eyeHappyTimer = 0.55;
+    return;
+  }
+  if (intro.beat === 4) {
+    finishStoryIntro(false);
+  }
+}
+
+export function skipStoryIntro() {
+  if (G.state !== STATE.STORY_INTRO || !G.storyIntro?.skipReady) return;
+  finishStoryIntro(true);
+}
+
+export function startStoryIntroDashCharge(touchId = null) {
+  if (G.state !== STATE.STORY_INTRO || !G.storyIntro) return false;
+  const intro = G.storyIntro;
+  ensureStoryIntroState(intro);
+  if (intro.beat !== 3 || !intro.breakthroughEnemy?.visible) return false;
+  const player = intro.player;
+  if (player.dashCharging || player.dashCooldown > 0) return false;
+  player.dashCharging = true;
+  player.dashChargeTime = 0;
+  player.dashChargeTouchId = touchId;
+  player.eyeWideTimer = Math.max(player.eyeWideTimer, 0.12);
+  return true;
+}
+
+export function releaseStoryIntroDashCharge() {
+  if (G.state !== STATE.STORY_INTRO || !G.storyIntro) return false;
+  const intro = G.storyIntro;
+  ensureStoryIntroState(intro);
+  const player = intro.player;
+  if (intro.beat !== 3 || !player.dashCharging) return false;
+  const t = getStoryIntroChargeLevel(player.dashChargeTime);
+  const { dx, dy } = getStoryIntroDashDirection(intro);
+  const dashSpd = lerp(CHARGE_SPEED_MIN, CHARGE_SPEED_MAX, t);
+  player.vx = dx * dashSpd;
+  player.vy = dy * dashSpd;
+  player.dashGraceTimer = lerp(CHARGE_GRACE_MIN, CHARGE_GRACE_MAX, t);
+  player.dashRecoveryTimer = 0;
+  player.pendingRecoveryTime = lerp(CHARGE_RECOVERY_MIN, CHARGE_RECOVERY_MAX, t);
+  player.dashCooldown = 0.2;
+  player.dashCharging = false;
+  player.dashChargeTime = 0;
+  player.dashChargeTouchId = null;
+  player.eyeSquashTimer = 0.15;
+  player.eyeWideTimer = 0.16;
+  sfxDash();
+  return true;
+}
+
+export function cancelStoryIntroDashCharge() {
+  if (G.state !== STATE.STORY_INTRO || !G.storyIntro?.player?.dashCharging) return;
+  const player = G.storyIntro.player;
+  player.dashCharging = false;
+  player.dashChargeTime = 0;
+  player.dashChargeTouchId = null;
+}
+
+function clamp01(v) {
+  return Math.max(0, Math.min(1, v));
+}
+
+function smooth01(v) {
+  const t = clamp01(v);
+  return t * t * (3 - 2 * t);
+}
+
+function makeStoryIntroPlayer() {
+  return {
+    x: -42,
+    y: H * 0.68,
+    vx: 110,
+    vy: 0,
+    r: 16,
+    hp: 3,
+    maxHp: 3,
+    invTimer: 0,
+    flashTimer: 0,
+    overdriveTimer: 0,
+    surgeActive: false,
+    shieldCharges: 0,
+    shieldDashOffset: 0,
+    powers: [],
+    multiPopCharges: 0,
+    magnetActive: false,
+    shellGuardOrbs: [],
+    dashCharging: false,
+    dashChargeTime: 0,
+    dashChargeTouchId: null,
+    dashGraceTimer: 0,
+    dashCooldown: 0,
+    pendingRecoveryTime: 0.25,
+    dashRecoveryTimer: 0,
+    eyeBlinkTimer: 0,
+    eyeNextBlink: 1.2,
+    eyeSquashTimer: 0,
+    eyeWideTimer: 0.9,
+    eyeHappyTimer: 0,
+    eyeDead: false,
+  };
+}
+
+function makeStoryIntroEnemy(type, x, y, wakeAt, extras) {
+  const ec = ENEMY_COLORS[type] || ENEMY_COLORS.drifter;
+  const enemy = {
+    type,
+    x,
+    y,
+    vx: 0,
+    vy: 0,
+    r: type === 'tracker' ? 14 : 12,
+    alive: false,
+    isFusing: false,
+    spawnScale: 0,
+    spawnTimer: 0,
+    color: ec.core,
+    glowColor: ec.glow,
+    shadowBlur: ec.blur,
+    hp: 1,
+    maxHp: 1,
+    invTimer: 0,
+    shield: false,
+    shieldHp: 0,
+    isBoss: false,
+    idleSeed: Math.random() * 6283,
+    hitFlashTimer: 0,
+    freezeTimer: 0,
+    pulseTimer: 3.5,
+    telegraphing: false,
+    telegraphTimer: 0,
+    teleportDest: null,
+    wakeAt,
+    visible: false,
+    introDefeated: false,
+    anchorX: x,
+    anchorY: y,
+    orbitRadius: 0,
+    orbitSpeed: 0,
+    orbitAngle: 0,
+  };
+  return Object.assign(enemy, extras || {});
+}
+
+function defeatStoryIntroEnemy(enemy, particleCount = 8) {
+  if (!enemy || enemy.introDefeated) return false;
+  enemy.alive = false;
+  enemy.visible = false;
+  enemy.introDefeated = true;
+  spawnParticles(enemy.x, enemy.y, enemy.color, particleCount);
+  sfxEnemyKill(enemy.type);
+  return true;
+}
+
+function ensureStoryIntroState(intro) {
+  if (!intro || intro.initialized) return;
+  intro.initialized = true;
+  intro.timer = intro.timer || 0;
+  intro.beat = 0;
+  intro.beatStartedAt = 0;
+  intro.skipReady = false;
+  intro.canAdvance = false;
+  intro.lockPoint = null;
+  intro.breakthroughEnemy = null;
+  intro.resolveEnemy = null;
+  intro.resolveEnemyCleared = false;
+  intro.resolveEnemyClearedAt = 0;
+  intro.core = { x: W * 0.70, y: H * 0.38, r: 28 };
+  intro.player = makeStoryIntroPlayer();
+  const blocker = makeStoryIntroEnemy('tracker', W * 0.60, H * 0.42, 1.70, {
+    static: true,
+    r: 16,
+  });
+  const coreGuard = makeStoryIntroEnemy('pulser', W * 0.69, H * 0.50, 1.25, {
+    orbitRadius: 0,
+    orbitSpeed: 0,
+    orbitAngle: 0,
+    introResolveEnemy: true,
+  });
+  intro.breakthroughEnemy = blocker;
+  intro.resolveEnemy = coreGuard;
+  intro.enemies = [
+    makeStoryIntroEnemy('tracker', W * 0.61, H * 0.28, 0.35, { orbitRadius: 36, orbitSpeed: 0.20, orbitAngle: 0.3 }),
+    makeStoryIntroEnemy('teleporter', W * 0.80, H * 0.36, 0.80, { orbitRadius: 48, orbitSpeed: -0.16, orbitAngle: 1.4 }),
+    coreGuard,
+    blocker,
+  ];
+}
+
+function drawStoryIntroGlowText(text, x, y, font, fillColor, glowColor, glowBlur, align = 'left') {
+  ctx.save();
+  ctx.font = font;
+  ctx.textAlign = align;
+  ctx.textBaseline = 'middle';
+  ctx.shadowColor = glowColor;
+  ctx.shadowBlur = glowBlur || 8;
+  ctx.fillStyle = fillColor;
+  ctx.fillText(text, x, y);
+  ctx.shadowBlur = 0;
+  ctx.fillText(text, x, y);
+  ctx.restore();
+}
+
+function drawStoryIntroBeacon(x, y, radius, tint, pulse = 1) {
+  ctx.save();
+  ctx.strokeStyle = tint;
+  ctx.lineWidth = 2;
+  ctx.shadowColor = tint;
+  ctx.shadowBlur = 16;
+  for (let i = 0; i < 3; i++) {
+    ctx.globalAlpha = 0.18 + i * 0.08;
+    ctx.beginPath();
+    ctx.arc(x, y, radius + i * 16 * pulse, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+  ctx.globalAlpha = 0.35;
+  ctx.fillStyle = tint;
+  ctx.beginPath();
+  ctx.arc(x, y, radius * 0.52, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+}
+
+function updateStoryIntroPlayerFace(player, dt) {
+  player.shieldDashOffset = (player.shieldDashOffset || 0) + 2;
+  if (player.eyeBlinkTimer > 0) player.eyeBlinkTimer -= dt;
+  else {
+    player.eyeNextBlink -= dt;
+    if (player.eyeNextBlink <= 0) {
+      player.eyeBlinkTimer = 0.14;
+      player.eyeNextBlink = 2.4 + Math.random() * 1.8;
+    }
+  }
+  if (player.eyeWideTimer > 0) player.eyeWideTimer -= dt;
+  if (player.eyeSquashTimer > 0) player.eyeSquashTimer -= dt;
+  if (player.eyeHappyTimer > 0) player.eyeHappyTimer -= dt;
+}
+
+function getStoryIntroChargeLevel(chargeTime) {
+  return Math.max(0, Math.min(1, (chargeTime - CHARGE_TAP_THRESHOLD) / (CHARGE_MAX_DURATION - CHARGE_TAP_THRESHOLD)));
+}
+
+function getStoryIntroDashDirection(intro) {
+  const player = intro.player;
+  if (G.joystick.active && (G.joystick.dx !== 0 || G.joystick.dy !== 0)) {
+    const jLen = Math.sqrt(G.joystick.dx * G.joystick.dx + G.joystick.dy * G.joystick.dy) || 1;
+    return { dx: G.joystick.dx / jLen, dy: G.joystick.dy / jLen };
+  }
+  const target = intro.breakthroughEnemy?.visible
+    ? intro.breakthroughEnemy
+    : (intro.resolveEnemy?.visible ? intro.resolveEnemy : intro.core);
+  const tdx = target.x - player.x;
+  const tdy = target.y - player.y;
+  const td = Math.sqrt(tdx * tdx + tdy * tdy) || 1;
+  return { dx: tdx / td, dy: tdy / td };
+}
+
+function primeStoryIntroBreakthrough(intro) {
+  const player = intro.player;
+  const dx = intro.core.x - player.x;
+  const dy = intro.core.y - player.y;
+  const d = Math.sqrt(dx * dx + dy * dy) || 1;
+  const nx = dx / d;
+  const ny = dy / d;
+  if (intro.lockPoint) {
+    player.x = intro.lockPoint.x;
+    player.y = intro.lockPoint.y;
+  }
+  player.vx = 0;
+  player.vy = 0;
+  player.dashCharging = false;
+  player.dashChargeTime = 0;
+  player.dashChargeTouchId = null;
+  player.dashGraceTimer = 0;
+  player.dashRecoveryTimer = 0;
+  intro.resolveEnemyCleared = false;
+  intro.resolveEnemyClearedAt = 0;
+  for (const enemy of intro.enemies) enemy.introDefeated = false;
+  const blocker = intro.breakthroughEnemy;
+  if (blocker) {
+    blocker.anchorX = intro.core.x - nx * 54;
+    blocker.anchorY = intro.core.y - ny * 54;
+    blocker.x = blocker.anchorX;
+    blocker.y = blocker.anchorY;
+  }
+}
+
+function updateStoryIntroBreakthrough(intro, dt) {
+  if (intro.beat !== 3) return;
+  const player = intro.player;
+  const blocker = intro.breakthroughEnemy;
+  const resolveEnemy = intro.resolveEnemy;
+
+  for (const enemy of intro.enemies) {
+    if (!enemy.visible || !enemy.alive || enemy.introDefeated) continue;
+    const d = dist(player, enemy);
+    if (d >= player.r + enemy.r) continue;
+
+    if (player.dashGraceTimer > 0) {
+      const defeated = defeatStoryIntroEnemy(enemy, enemy === blocker ? 10 : 8);
+      if (defeated && (enemy === resolveEnemy || enemy.introResolveEnemy)) {
+        intro.resolveEnemyCleared = true;
+        intro.resolveEnemyClearedAt = intro.timer;
+      }
+      continue;
+    }
+
+    if (enemy !== blocker) continue;
+    const pdx = player.x - enemy.x;
+    const pdy = player.y - enemy.y;
+    const pushDist = Math.sqrt(pdx * pdx + pdy * pdy) || 1;
+    const overlap = (player.r + enemy.r) - pushDist;
+    player.vx = (pdx / pushDist) * 220;
+    player.vy = (pdy / pushDist) * 220;
+    if (overlap > 0) {
+      player.x += (pdx / pushDist) * overlap;
+      player.y += (pdy / pushDist) * overlap;
+    }
+    player.eyeWideTimer = Math.max(player.eyeWideTimer, 0.14);
+    enemy.hitFlashTimer = 0.1;
+  }
+
+  if (!intro.resolveEnemyCleared) return;
+  if (player.dashGraceTimer > 0 || player.dashCharging) return;
+
+  player.eyeHappyTimer = 0.34;
+  intro.breakthroughEnemy = null;
+  intro.resolveEnemy = null;
+  for (const enemy of intro.enemies) {
+    if (!enemy.alive || enemy.introDefeated) continue;
+    enemy.alive = false;
+    enemy.visible = false;
+    enemy.introDefeated = true;
+  }
+  intro.beat = 4;
+  intro.beatStartedAt = intro.timer;
+  intro.canAdvance = false;
+}
+
+function updateStoryIntroPlayer(intro, dt) {
+  const player = intro.player;
+  const localT = intro.timer - intro.beatStartedAt;
+  const accel = 760;
+  const maxSpeed = 240;
+  const inputEnabled = intro.beat === 1;
+
+  if (player.dashGraceTimer > 0) {
+    const prev = player.dashGraceTimer;
+    player.dashGraceTimer = Math.max(0, player.dashGraceTimer - dt);
+    if (player.dashGraceTimer <= 0 && prev > 0) {
+      player.dashRecoveryTimer = player.pendingRecoveryTime || 0.25;
+    }
+  }
+  if (player.dashRecoveryTimer > 0) player.dashRecoveryTimer = Math.max(0, player.dashRecoveryTimer - dt);
+  if (player.dashCooldown > 0) player.dashCooldown = Math.max(0, player.dashCooldown - dt);
+  if (player.dashCharging) player.dashChargeTime += dt;
+
+  let driftX = 0;
+  let driftY = 0;
+  if (inputEnabled) {
+    if (G.keysDown['w'] || G.keysDown['arrowup']) driftY -= 1;
+    if (G.keysDown['s'] || G.keysDown['arrowdown']) driftY += 1;
+    if (G.keysDown['a'] || G.keysDown['arrowleft']) driftX -= 1;
+    if (G.keysDown['d'] || G.keysDown['arrowright']) driftX += 1;
+    if (G.joystick.active && (G.joystick.dx !== 0 || G.joystick.dy !== 0)) {
+      const jLen = Math.sqrt(G.joystick.dx * G.joystick.dx + G.joystick.dy * G.joystick.dy) || 1;
+      const jNorm = Math.min(jLen / 40, 1);
+      driftX += (G.joystick.dx / jLen) * jNorm;
+      driftY += (G.joystick.dy / jLen) * jNorm;
+    }
+  }
+
+  if (intro.beat === 0) {
+    const targetX = W * 0.22;
+    const targetY = H * 0.68;
+    const steerX = targetX - player.x;
+    const steerY = targetY - player.y;
+    player.vx += steerX * dt * 1.6;
+    player.vy += steerY * dt * 1.6;
+    player.vx *= 0.94;
+    player.vy *= 0.90;
+    if (localT > 0.22 && Math.abs(steerX) < 18 && Math.abs(player.vx) < 16) {
+      player.vx *= 0.88;
+      player.vy *= 0.88;
+      intro.canAdvance = true;
+    }
+  } else if (inputEnabled && player.dashGraceTimer <= 0) {
+    const len = Math.sqrt(driftX * driftX + driftY * driftY);
+    if (len > 0) {
+      driftX /= len;
+      driftY /= len;
+      player.vx += driftX * accel * dt;
+      player.vy += driftY * accel * dt;
+      const speed = Math.sqrt(player.vx * player.vx + player.vy * player.vy);
+      if (speed > maxSpeed) {
+        player.vx = (player.vx / speed) * maxSpeed;
+        player.vy = (player.vy / speed) * maxSpeed;
+      }
+    }
+    const friction = len > 0 ? 220 : 360;
+    const speed = Math.sqrt(player.vx * player.vx + player.vy * player.vy);
+    if (speed > 0) {
+      const newSpeed = Math.max(0, speed - friction * dt);
+      const ratio = newSpeed / speed;
+      player.vx *= ratio;
+      player.vy *= ratio;
+    }
+  } else if (player.dashGraceTimer > 0) {
+    const speed = Math.sqrt(player.vx * player.vx + player.vy * player.vy);
+    if (speed > 0) {
+      const newSpeed = Math.max(0, speed - IDLE_FRICTION * dt);
+      const ratio = newSpeed / speed;
+      player.vx *= ratio;
+      player.vy *= ratio;
+    }
+  } else {
+    player.vx *= 0.90;
+    player.vy *= 0.90;
+  }
+
+  player.x += player.vx * dt;
+  player.y += player.vy * dt;
+  if (player.dashGraceTimer > 0 && Math.sqrt(player.vx * player.vx + player.vy * player.vy) > 220) {
+    G.afterimages.push({
+      x: player.x,
+      y: player.y,
+      r: player.r,
+      alpha: 0.42,
+      life: 0.10,
+      color: '#78eaff',
+      maxAlpha: 0.42,
+    });
+  }
+  player.x = Math.max(player.r + 18, Math.min(W - player.r - 18, player.x));
+  player.y = Math.max(player.r + 18, Math.min(H - player.r - 18, player.y));
+
+  if (intro.beat === 1 && player.x >= W * 0.47) {
+    intro.beat = 2;
+    intro.beatStartedAt = intro.timer;
+    intro.canAdvance = false;
+    intro.lockPoint = { x: player.x, y: player.y };
+    player.eyeWideTimer = 1.5;
+    player.vx = 0;
+    player.vy = 0;
+  }
+}
+
+function updateStoryIntroEnemies(intro, dt) {
+  if (intro.beat !== 2 && intro.beat !== 3 && intro.beat !== 4) return;
+  const localT = intro.timer - intro.beatStartedAt;
+  for (const enemy of intro.enemies) {
+    if (enemy.introDefeated) continue;
+    if (!enemy.visible && localT >= enemy.wakeAt) {
+      enemy.visible = true;
+      enemy.alive = true;
+      enemy.spawnTimer = 0.2;
+      enemy.spawnScale = 0;
+      enemy.hitFlashTimer = 0.14;
+      spawnParticles(enemy.x, enemy.y, enemy.color, enemy === intro.breakthroughEnemy ? 9 : 6);
+    }
+    if (!enemy.visible) continue;
+    if (enemy.spawnTimer > 0) {
+      enemy.spawnTimer = Math.max(0, enemy.spawnTimer - dt);
+      enemy.spawnScale = 1 - (enemy.spawnTimer / 0.2);
+    } else {
+      enemy.spawnScale = 1;
+    }
+    enemy.hitFlashTimer = Math.max(0, enemy.hitFlashTimer - dt);
+    if (enemy.static) {
+      enemy.x = enemy.anchorX;
+      enemy.y = enemy.anchorY;
+      enemy.pulseTimer = 3.5 - (((intro.timer * 1.2) + enemy.idleSeed * 0.0008) % 3.5);
+      continue;
+    }
+    enemy.pulseTimer = 3.5 - (((intro.timer * 1.2) + enemy.idleSeed * 0.0008) % 3.5);
+    enemy.telegraphing = enemy.type === 'teleporter' && Math.sin(intro.timer * 3 + enemy.idleSeed) > 0.72;
+    enemy.telegraphTimer = enemy.telegraphing ? 0.3 : 0;
+    enemy.x = intro.core.x + Math.cos(enemy.orbitAngle + intro.timer * enemy.orbitSpeed) * enemy.orbitRadius;
+    enemy.y = intro.core.y + Math.sin(enemy.orbitAngle + intro.timer * enemy.orbitSpeed) * enemy.orbitRadius;
+  }
+  if (intro.beat === 2 && localT >= 0.65) {
+    intro.canAdvance = true;
+  }
+  if (intro.beat === 4 && localT >= 0.01) intro.canAdvance = true;
+}
+
+function updateStoryIntro(dt) {
+  const intro = G.storyIntro;
+  if (!intro) return;
+  ensureStoryIntroState(intro);
+  intro.timer += dt;
+  if (intro.timer >= 0.5) intro.skipReady = true;
+  updateStoryIntroPlayerFace(intro.player, dt);
+  updateStoryIntroPlayer(intro, dt);
+  updateStoryIntroEnemies(intro, dt);
+  updateStoryIntroBreakthrough(intro, dt);
+}
+
+function drawStoryIntroObjective(text, accent) {
+  const boxW = 300;
+  const boxH = 42;
+  const x = W / 2 - boxW / 2;
+  const y = H - 88;
+  ctx.save();
+  ctx.fillStyle = 'rgba(8, 14, 26, 0.82)';
+  ctx.beginPath();
+  ctx.roundRect(x, y, boxW, boxH, 14);
+  ctx.fill();
+  ctx.strokeStyle = accent;
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+  ctx.font = 'bold 16px ' + FONT;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillStyle = '#eff7ff';
+  ctx.fillText(text, W / 2, y + boxH / 2);
+  ctx.restore();
+}
+
+function drawStoryIntroWorld(intro) {
+  const t = intro.timer;
+  const beamAlpha = intro.beat === 1 ? 0.30 + 0.20 * Math.sin(t * 2.6) : 0.18;
+
+  ctx.save();
+  ctx.fillStyle = '#050914';
+  ctx.fillRect(0, 0, W, H);
+  ctx.globalAlpha = 0.45;
+  ctx.drawImage(bgGridCanvas, 0, 0);
+  ctx.globalAlpha = 0.75;
+  ctx.drawImage(gridCanvas, 0, 0);
+  ctx.globalAlpha = 1;
+
+  const arenaGlow = ctx.createRadialGradient(intro.core.x, intro.core.y, 20, intro.core.x, intro.core.y, 260);
+  arenaGlow.addColorStop(0, 'rgba(112, 220, 255, 0.10)');
+  arenaGlow.addColorStop(0.45, 'rgba(80, 120, 255, 0.06)');
+  arenaGlow.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.fillStyle = arenaGlow;
+  ctx.fillRect(0, 0, W, H);
+
+  for (let i = 0; i < 18; i++) {
+    const px = (i * 93 + 40) % W;
+    const py = (i * 57 + Math.sin(t * 0.5 + i) * 18 + 20) % H;
+    ctx.globalAlpha = 0.10 + (i % 4) * 0.03;
+    ctx.fillStyle = i % 3 === 0 ? '#8ef1ff' : '#c9d9ff';
+    ctx.fillRect(px, py, 2, 2);
+  }
+  ctx.globalAlpha = 1;
+
+  if (intro.beat === 1) {
+    ctx.save();
+    ctx.globalAlpha = beamAlpha;
+    ctx.strokeStyle = '#87ecff';
+    ctx.lineWidth = 2;
+    ctx.setLineDash([10, 8]);
+    ctx.beginPath();
+    ctx.moveTo(intro.player.x, intro.player.y);
+    ctx.lineTo(intro.core.x, intro.core.y);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.restore();
+  }
+
+  drawStoryIntroBeacon(intro.core.x, intro.core.y, intro.core.r, intro.beat === 2 ? '#ff86ba' : '#78eaff', 0.95 + Math.sin(t * 1.9) * 0.08);
+
+  const prevPlayer = G.player;
+  const prevEnemies = G.enemies;
+  G.player = intro.player;
+  G.enemies = intro.enemies.filter(e => e.visible);
+  drawEnemies();
+  drawParticles();
+  drawAfterimages();
+  drawPlayer();
+  G.player = prevPlayer;
+  G.enemies = prevEnemies;
+
+  const vignette = ctx.createRadialGradient(W / 2, H / 2, H * 0.20, W / 2, H / 2, H * 0.72);
+  vignette.addColorStop(0, 'rgba(0,0,0,0)');
+  vignette.addColorStop(1, 'rgba(1,2,6,0.58)');
+  ctx.fillStyle = vignette;
+  ctx.fillRect(0, 0, W, H);
+  ctx.restore();
+}
+
+function drawStoryIntroScreen() {
+  const intro = G.storyIntro;
+  if (!intro) return;
+  ensureStoryIntroState(intro);
+  const localT = intro.timer - intro.beatStartedAt;
+  const isTouchDev = 'ontouchstart' in window;
+
+  drawStoryIntroWorld(intro);
+
+  let title = 'A distress signal remains inside the grid.';
+  let body = 'You are the last courier in range.';
+  let prompt = intro.canAdvance ? 'Press any key or click to answer the signal' : '';
+  let objective = '';
+  let accent = '#78eaff';
+
+  if (intro.beat === 1) {
+    title = 'The core is still active.';
+    body = 'Move toward the signal before the link collapses.';
+    objective = 'Move toward the core';
+  } else if (intro.beat === 2) {
+    title = 'Its constructs are waking corrupted.';
+    body = 'If the core dies here, the grid goes dark with it.';
+    if (intro.canAdvance) prompt = 'Press any key or click to continue';
+    accent = '#ff86ba';
+  } else if (intro.beat === 3) {
+    title = '';
+    body = isTouchDev
+      ? 'Hold the right side, then release\nto dash through the construct.'
+      : 'Hold Space, then release\nto dash through the construct.';
+    prompt = '';
+    objective = '';
+    accent = '#78eaff';
+  } else if (intro.beat === 4) {
+    title = 'Hold the line. Keep the core alive.';
+    body = 'The run starts now.';
+    if (intro.canAdvance) prompt = 'Press any key or click to begin';
+    accent = '#ff86ba';
+  }
+
+  const textAlpha = intro.beat === 0 ? smooth01(localT / 0.8) : 1;
+  ctx.save();
+  ctx.globalAlpha = textAlpha;
+  if (title) drawStoryIntroGlowText(title, 58, 92, 'bold 34px ' + FONT, '#ffffff', accent, 18);
+  if (body) {
+    ctx.font = '18px ' + FONT;
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = '#c6d2e7';
+    const bodyY = title ? 144 : 116;
+    const lines = body.split('\n');
+    for (let i = 0; i < lines.length; i++) ctx.fillText(lines[i], 58, bodyY + i * 28);
+  }
+  ctx.restore();
+
+  ctx.save();
+  ctx.font = '12px ' + FONT;
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'middle';
+  ctx.fillStyle = '#7f8eac';
+  ctx.fillText('Loadout: ' + ((LOADOUTS.find(l => l.id === G.meta.selectedLoadout) || LOADOUTS[0]).name), 58, H - 44);
+  if (intro.skipReady) {
+    ctx.textAlign = 'right';
+    ctx.fillText('Esc to skip', W - 40, 34);
+  }
+  ctx.restore();
+
+  if (objective) drawStoryIntroObjective(objective, '#78eaff');
+  if (prompt) {
+    ctx.save();
+    ctx.font = 'bold 16px ' + FONT;
+    ctx.textAlign = 'right';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = '#a6d8ff';
+    ctx.fillText(prompt, W - 40, H - 48);
+    ctx.restore();
+  }
+}
+
+function drawMenuButton(rect, label, opts) {
+  const hovered = !!opts.hovered;
+  const accent = opts.accent || '#00ffff';
+  const sublabel = opts.sublabel || '';
+  const prominent = !!opts.prominent;
+  const danger = !!opts.danger;
+
+  ctx.save();
+  if (hovered) {
+    ctx.shadowColor = accent;
+    ctx.shadowBlur = prominent ? 18 : 12;
+  }
+  ctx.fillStyle = danger
+    ? (hovered ? '#52212a' : 'rgba(56, 20, 28, 0.88)')
+    : prominent
+      ? (hovered ? '#163844' : 'rgba(18, 30, 44, 0.90)')
+      : (hovered ? '#202943' : 'rgba(16, 20, 34, 0.82)');
+  ctx.beginPath();
+  ctx.roundRect(rect.x, rect.y, rect.w, rect.h, 10);
+  ctx.fill();
+  ctx.strokeStyle = accent;
+  ctx.lineWidth = hovered ? 2.5 : 1.5;
+  ctx.stroke();
+  ctx.shadowBlur = 0;
+
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillStyle = hovered ? '#ffffff' : '#dbe8ff';
+  ctx.font = 'bold ' + (prominent ? 20 : 16) + 'px ' + FONT;
+  ctx.fillText(label, rect.x + rect.w / 2, rect.y + rect.h / 2 + (sublabel ? -6 : 0));
+
+  if (sublabel) {
+    ctx.fillStyle = hovered ? '#d6f7ff' : '#9eb1cc';
+    ctx.font = '12px ' + FONT;
+    ctx.fillText(sublabel, rect.x + rect.w / 2, rect.y + rect.h / 2 + 14);
+  }
   ctx.restore();
 }
 
@@ -630,10 +1937,15 @@ events.on('boostCollected', (data) => {
 events.on('waveStarted', (data) => {
   platformSDK.gameplayStart();
   platformSDK.event('waveReached', { wave: data.wave });
+  if (G.runTelemetry) G.runTelemetry.waveReached = Math.max(G.runTelemetry.waveReached || 0, data.wave || 0);
 });
 
 events.on('enemyKilled', (data) => {
   platformSDK.event('score', { score: G.score, points: data.points, combo: data.combo });
+  if (G.runTelemetry) {
+    const key = Object.prototype.hasOwnProperty.call(G.runTelemetry.killSources, data.source) ? data.source : 'other';
+    G.runTelemetry.killSources[key] = (G.runTelemetry.killSources[key] || 0) + 1;
+  }
 });
 
 events.on('gameOver', (data) => {
@@ -790,6 +2102,166 @@ function transitionToPowerSelect() {
   G.collectFlashAlpha = 0;
 }
 
+function finalizeTransitionRoomChoice(room, option) {
+  if (!room || !option) return;
+  if (room.mode === 'boss_approach') {
+    if (option.id === 'steady') {
+      G.player.hp = Math.min(G.player.maxHp, G.player.hp + 1);
+      G.player.stamina = G.player.maxStamina;
+      spawnCombatText('+1 HP', G.player.x, G.player.y - 30, { size: 18, color: '#6ff7ff', bold: true });
+    } else {
+      G.bossRouteShardBonus = option.shardBonus || 0;
+      G.bossRouteScoreBonus = option.scoreBonus || 0;
+      spawnCombatText('RISK ROUTE', G.player.x, G.player.y - 30, { size: 16, color: '#ff9b7c', bold: true });
+    }
+    sfxUIClick();
+    startTransition(() => {
+      G.transitionRoom = null;
+      clearTransitionRoomUi();
+      startBossIntro(room.bossWave);
+    }, 5);
+    return;
+  }
+
+  if (option.kind === 'signal_cache') {
+    G.meta.shards += option.shardBonus || 20;
+    G.meta.totalShardsEarned += option.shardBonus || 20;
+    saveMeta(G.meta);
+    sfxUIClick();
+  } else if (option.card) {
+    G.previousOffering = (room.options || [])
+      .filter(candidate => candidate.card && !candidate.card.isEvolution)
+      .map(candidate => candidate.card.powerId);
+    if (option.card.isEvolution) {
+      applyPowerPick(option.card);
+      sfxEvolutionUnlock();
+    } else {
+      applyPowerPick(option.card);
+      sfxCardPick();
+    }
+    G.pendingEvolution = checkEvolutionAvailable();
+  }
+
+  startTransition(() => {
+    const breakDur = G.isHardcore ? 1.0 : getWaveBreakDuration(G.wave);
+    G.transitionRoom = null;
+    clearTransitionRoomUi();
+    G.state = STATE.WAVE_BREAK;
+    setMusicState('wave_break');
+    G.waveBreakTimer = breakDur;
+    initWaveTransition(breakDur);
+  }, 5);
+}
+
+function updateTransitionRoom(dt) {
+  const room = G.transitionRoom;
+  const player = G.player;
+  if (!room || !player) return;
+
+  if (room.preludeActive) {
+    room.preludeTimer += dt;
+    if (room.preludeTimer >= room.preludeAdvanceDelay) {
+      room.preludeReady = true;
+    }
+    player.vx *= Math.max(0, 1 - dt * 10);
+    player.vy *= Math.max(0, 1 - dt * 10);
+    updateParticles(dt);
+    updateFloatTexts(dt);
+    updateAfterimages(dt);
+    updateCombatTexts(dt);
+    updateAmbientParticles(dt);
+    updateAmbientShapes(dt);
+    return;
+  }
+
+  if (room.outroActive) {
+    room.outroTimer += dt;
+    player.vx *= Math.max(0, 1 - dt * 10);
+    player.vy *= Math.max(0, 1 - dt * 10);
+    updateParticles(dt);
+    updateFloatTexts(dt);
+    updateAfterimages(dt);
+    updateCombatTexts(dt);
+    updateAmbientParticles(dt);
+    updateAmbientShapes(dt);
+    if (room.mode === 'epilogue') {
+      if (room.outroTimer >= room.outroLineDuration && !room.outroResolved) {
+        const nextIndex = room.outroLineIndex + 1;
+        if (nextIndex < EPILOGUE_REVEAL_LINES.length) {
+          room.outroLineIndex = nextIndex;
+          room.commitLine = EPILOGUE_REVEAL_LINES[nextIndex];
+          room.outroTimer = 0;
+          room.outroLineDuration = getEpilogueRevealDuration(
+            EPILOGUE_REVEAL_LINES[nextIndex],
+            nextIndex === EPILOGUE_REVEAL_LINES.length - 1
+          );
+        } else {
+          room.outroResolved = true;
+          G.isVictory = true;
+          startTransition(() => {
+            transitionToRunSummary();
+            G.transitionRoom = null;
+            clearTransitionRoomUi();
+          }, 5);
+        }
+      }
+    } else if (room.outroTimer >= room.outroDuration && !room.outroResolved) {
+      room.outroResolved = true;
+      if (room.selectedIndex >= 0 && room.options?.[room.selectedIndex]) {
+        finalizeTransitionRoomChoice(room, room.options[room.selectedIndex]);
+      }
+    }
+    return;
+  }
+
+  if (room.controlDelay > 0) room.controlDelay = Math.max(0, room.controlDelay - dt);
+
+  if (room.mode === 'epilogue' && room.selectedIndex === 0) {
+    player.vx *= Math.max(0, 1 - dt * 10);
+    player.vy *= Math.max(0, 1 - dt * 10);
+  } else {
+    updatePlayer(dt);
+    player.x = Math.max(40, Math.min(W - 40, player.x));
+    player.y = Math.max(90, Math.min(H - 36, player.y));
+  }
+
+  updateParticles(dt);
+  updateFloatTexts(dt);
+  updateAfterimages(dt);
+  updateCombatTexts(dt);
+  updateAmbientParticles(dt);
+  updateAmbientShapes(dt);
+
+  if (room.mode === 'epilogue') {
+    const exitGate = room.exitGate;
+    if (exitGate) {
+      const d = dist(player, exitGate);
+      room.hoverIndex = d < 90 ? 0 : -1;
+      if (d < exitGate.commitRadius && room.selectedIndex < 0) {
+        continueTransitionRoom();
+      }
+    }
+    return;
+  }
+
+  let nearestIndex = -1;
+  let nearestDist = Infinity;
+  for (let i = 0; i < room.gates.length; i++) {
+    const gate = room.gates[i];
+    const d = dist(player, gate);
+    if (d < nearestDist) {
+      nearestDist = d;
+      nearestIndex = i;
+    }
+    if (room.selectedIndex < 0 && d < gate.commitRadius && room.controlDelay <= 0) {
+      chooseTransitionRoomOption(i);
+      return;
+    }
+  }
+  room.hoverIndex = nearestIndex;
+  if (nearestIndex >= 0) room.cursor = nearestIndex;
+}
+
 // --- Main Update ---
 function update(dt) {
   if (G.state === STATE.GAME_OVER) {
@@ -826,9 +2298,18 @@ function update(dt) {
   }
 
   if (G.state === STATE.TITLE) { updateTitleBackground(dt); return; }
+  if (G.state === STATE.STORY_INTRO) {
+    updateTitleBackground(dt);
+    updateAfterimages(dt);
+    updateParticles(dt);
+    updateStoryIntro(dt);
+    return;
+  }
   if (G.state === STATE.MODE_SELECT) return;
   if (G.state === STATE.PAUSED) return;
   if (G.state === STATE.TUTORIAL) return;
+  if (G.state === STATE.RELAY_CHAMBER) return;
+  if (G.state === STATE.TRANSITION_ROOM) { updateTransitionRoom(dt); return; }
   if (G.state === STATE.UPGRADES) return;
   if (G.state === STATE.LOADOUT) return;
   if (G.state === STATE.GLOSSARY) return;
@@ -1009,31 +2490,13 @@ function update(dt) {
 
   // Boss clear pause (after defeating a boss)
   if (G.bossClearPause > 0) {
-    const done = updateBossClearPause(dt);
-    if (done && G.state === STATE.POWER_SELECT) {
-      const offering = generateOffering(G.wave, G.meta);
-      if (G.pendingEvolution) {
-        offering.push(createEvolutionCard(G.pendingEvolution));
-        events.emit('evolutionOffered', { recipeId: G.pendingEvolution.id });
-        G.pendingEvolution = null;
-      }
-      // Emit glossary tracking for offered powers
-      for (const card of offering) {
-        if (!card.isEvolution) events.emit('powerOffered', { powerId: card.powerId });
-      }
-      // Skip power select if no cards to offer (all powers maxed)
-      if (offering.length === 0) {
-        const breakDur3 = G.isHardcore ? 1.0 : getWaveBreakDuration(G.wave);
-        G.state = STATE.WAVE_BREAK;
-        G.waveBreakTimer = breakDur3;
-        initWaveTransition(breakDur3);
-      } else {
-        G.cardOffering = offering;
-        G.cardHover = -1;
-        G.cardPickAnim = null;
-        G.collectFlashTimer = 0;
-        G.collectFlashAlpha = 0;
-      }
+    const clearResult = updateBossClearPause(dt);
+    if (clearResult === 'victory' && G.lastBossResult) {
+      enterBossEpilogueRoom(G.lastBossResult.bossWave, G.lastBossResult.bossType);
+      G.lastBossResult = null;
+    } else if (clearResult === 'cleared' && G.lastBossResult) {
+      enterChapterReturnRoom(G.lastBossResult.bossWave, G.lastBossResult.bossType);
+      G.lastBossResult = null;
     }
     updateParticles(dt); updateFloatTexts(dt); updateShockwaves(dt);
     updateAfterimages(dt); updateCombatTexts(dt);
@@ -1117,12 +2580,15 @@ function update(dt) {
     const nextWave = G.wave + 1;
     if (isBossWave(nextWave)) {
       if (nextWave <= 30 || G.isEndlessRun) {
-        // Brief pause then boss intro — too short for full transition
-        G.state = STATE.WAVE_BREAK;
-        setMusicState('wave_break');
-        G.waveBreakTimer = 0.3;
-        initWaveTransition(0.3);
-        // Power select will happen after boss defeat instead
+        if (nextWave <= 30) {
+          enterBossApproachRoom(nextWave);
+        } else {
+          // Endless bosses continue using the direct flow.
+          G.state = STATE.WAVE_BREAK;
+          setMusicState('wave_break');
+          G.waveBreakTimer = 0.3;
+          initWaveTransition(0.3);
+        }
       } else {
         // No endless mode — brief pause then power select
         G.pendingPowerSelect = true;
@@ -1205,42 +2671,71 @@ function drawTitleScreen() {
     ctx.restore();
   }
 
-  const startPulse = 0.4 + 0.6 * Math.sin(Date.now() / 600 * Math.PI);
+  const panelW = 420;
+  const panelX = W / 2 - panelW / 2;
+  const panelY = H * 0.595;
+  const panelH = hasSavedRun() ? 246 : 192;
+
   ctx.save();
-  ctx.globalAlpha = startPulse;
-  ctx.font = '18px ' + FONT;
-  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-  ctx.fillStyle = '#cccccc';
-  ctx.fillText('Click or Press Any Key to Play', W / 2, H * 0.56);
+  ctx.fillStyle = 'rgba(8, 12, 22, 0.66)';
+  ctx.beginPath();
+  ctx.roundRect(panelX, panelY - 26, panelW, panelH, 16);
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(70, 160, 220, 0.26)';
+  ctx.lineWidth = 1;
+  ctx.stroke();
   ctx.restore();
 
-  // Continue Run prompt
+  const playRect = { x: W / 2 - 154, y: panelY - 6, w: 308, h: 50 };
+  G._titlePlayBtnRect = playRect;
+  drawMenuButton(playRect, 'Play', {
+    hovered: G._titleHoverAction === 'play',
+    accent: '#00eaff',
+    sublabel: 'Click or press any key',
+    prominent: true,
+  });
+
+  let lowerButtonsY = playRect.y + playRect.h + 12;
   if (hasSavedRun()) {
-    const contPulse = 0.6 + 0.4 * Math.sin(Date.now() / 500 * Math.PI);
-    ctx.save();
-    ctx.globalAlpha = contPulse;
-    ctx.font = 'bold 16px ' + FONT;
-    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.fillStyle = '#00ffcc';
-    ctx.fillText('Press C to Continue Run', W / 2, H * 0.62);
-    ctx.restore();
+    const continueRect = { x: W / 2 - 154, y: lowerButtonsY, w: 308, h: 42 };
+    G._titleContinueBtnRect = continueRect;
+    drawMenuButton(continueRect, 'Continue Run', {
+      hovered: G._titleHoverAction === 'continue',
+      accent: '#00ffcc',
+      sublabel: 'Hotkey C',
+    });
+    lowerButtonsY += 54;
+  } else {
+    G._titleContinueBtnRect = null;
   }
 
-  ctx.save();
-  ctx.font = '14px ' + FONT;
-  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-  ctx.fillStyle = '#555555';
-  ctx.fillText('WASD to move · Space to bounce · P to pause', W / 2, H * 0.68);
-  ctx.fillText('U — Upgrades · L — Loadout · G — Glossary · S — Settings', W / 2, H * 0.74);
-  ctx.restore();
+  const smallW = 148;
+  const smallH = 40;
+  const smallGap = 12;
+  const smallX = W / 2 - (smallW * 2 + smallGap) / 2;
+  const secondary = [
+    { id: 'upgrades', label: 'Upgrades', key: 'U', x: smallX, y: lowerButtonsY, accent: '#ffd24a' },
+    { id: 'loadout', label: 'Loadout', key: 'L', x: smallX + smallW + smallGap, y: lowerButtonsY, accent: '#7fe6ff' },
+    { id: 'glossary', label: 'Codex', key: 'G', x: smallX, y: lowerButtonsY + smallH + 10, accent: '#c98cff' },
+    { id: 'settings', label: 'Settings', key: 'S', x: smallX + smallW + smallGap, y: lowerButtonsY + smallH + 10, accent: '#9ab4ff' },
+  ];
+  for (const btn of secondary) {
+    const rect = { x: btn.x, y: btn.y, w: smallW, h: smallH };
+    G['_title' + btn.id.charAt(0).toUpperCase() + btn.id.slice(1) + 'BtnRect'] = rect;
+    drawMenuButton(rect, btn.label, {
+      hovered: G._titleHoverAction === btn.id,
+      accent: btn.accent,
+      sublabel: 'Hotkey ' + btn.key,
+    });
+  }
 
   // Selected loadout
   const loadout = LOADOUTS.find(l => l.id === G.meta.selectedLoadout) || LOADOUTS[0];
   ctx.save();
   ctx.font = '13px ' + FONT;
   ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-  ctx.fillStyle = '#448888';
-  ctx.fillText('Loadout: ' + loadout.name, W / 2, H * 0.80);
+  ctx.fillStyle = '#95cfd5';
+  ctx.fillText('Current loadout: ' + loadout.name, W / 2, panelY + panelH - 26 + 22);
   ctx.restore();
 
   ctx.restore();
@@ -1443,7 +2938,7 @@ function drawModeSelectScreen() {
     const isHovered = cursor === i;
     const color = i === 0 ? '#00ffcc' : '#ffdd44';
     const label = i === 0 ? 'STORY' : 'ENDLESS';
-    const desc = i === 0 ? 'Waves 1–30\nBoss battles\nComplete the game' : 'Infinite waves\nEscalating difficulty\nHow far can you go?';
+    const desc = i === 0 ? 'Waves 1–30\nBoss battles\nComplete the game' : 'Endless cycles\nRotating encounter logic\nHow long can you hold?';
 
     ctx.save();
     const drawX = cx - cardW / 2;
@@ -1563,6 +3058,18 @@ function drawRunSummary() {
     ctx.fillStyle = '#8888bb';
     ctx.fillText(text.toUpperCase(), W / 2, sy);
   };
+  const drawPanel = (px, py, pw, ph, accent) => {
+    ctx.save();
+    ctx.fillStyle = 'rgba(10, 14, 26, 0.76)';
+    ctx.beginPath();
+    ctx.roundRect(px, py, pw, ph, 14);
+    ctx.fill();
+    ctx.strokeStyle = accent;
+    ctx.globalAlpha = 0.28;
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+    ctx.restore();
+  };
 
   // --- Title ---
   let y = 48;
@@ -1575,114 +3082,134 @@ function drawRunSummary() {
   } else {
     drawGlowText('RUN COMPLETE', W / 2, y, 'bold 34px ' + FONT, '#ffffff', '#aaaaff', 8);
   }
-  y += 30;
+  y += 24;
 
   // === Section 1: Run Stats ===
-  drawSeparator(y); y += 14;
-  drawSectionLabel('Run Stats', y); y += 20;
+  drawSeparator(y); y += 10;
+  drawSectionLabel('Run Stats', y); y += 14;
+  const statsPanelY = y - 4;
+  drawPanel(W * 0.24, statsPanelY, W * 0.52, 78, '#7e90d8');
 
-  ctx.font = '20px ' + FONT;
+  ctx.font = '18px ' + FONT;
   ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-  ctx.fillStyle = '#cccccc';
-  ctx.fillText('Waves Survived: ' + s.waves, W / 2, y); y += 26;
-  ctx.fillText('Enemies Killed: ' + s.kills, W / 2, y); y += 26;
-  ctx.fillStyle = '#00ccff';
-  ctx.fillText('Final Score: ' + formatScore(Math.floor(G.runSummaryScoreCounter)), W / 2, y); y += 22;
+  ctx.fillStyle = '#d6def3';
+  ctx.fillText('Waves Survived: ' + s.waves, W / 2, statsPanelY + 22);
+  ctx.fillText('Enemies Killed: ' + s.kills, W / 2, statsPanelY + 44);
+  ctx.fillStyle = '#58d6ff';
+  ctx.font = 'bold 20px ' + FONT;
+  ctx.fillText('Final Score: ' + formatScore(Math.floor(G.runSummaryScoreCounter)), W / 2, statsPanelY + 64);
+  y = statsPanelY + 88;
 
   // === Section 2: Powers Earned ===
   if (s.powersHeld.length > 0) {
-    drawSeparator(y); y += 14;
-    drawSectionLabel('Powers Earned', y); y += 22;
+    drawSeparator(y); y += 10;
+    drawSectionLabel('Powers Earned', y); y += 14;
+    const powersPanelY = y - 4;
+    const powersPanelH = s.powersHeld.length <= 2 ? 70 : 82;
+    drawPanel(W * 0.16, powersPanelY, W * 0.68, powersPanelH, '#9f7cff');
 
     const iconR = 18; // 36px diameter
-    const slotW = 70; // space per power (icon + label)
+    const slotW = 68; // space per power (icon + label)
     const totalPW = s.powersHeld.length * slotW;
     let px = W / 2 - totalPW / 2 + slotW / 2;
-    const iconCY = y;
+    const iconCY = powersPanelY + (s.powersHeld.length <= 2 ? 24 : 26);
     for (const p of s.powersHeld) {
       drawPowerIcon(p.icon, p.shape, px, iconCY, iconR);
       // Label below icon
       ctx.font = '12px ' + FONT;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'top';
-      ctx.fillStyle = '#bbbbbb';
+      ctx.fillStyle = '#cbd2e2';
       ctx.fillText(p.name, px, iconCY + iconR + 5);
       px += slotW;
     }
-    y = iconCY + iconR + 20;
+    y = powersPanelY + powersPanelH + 10;
   }
 
   // === Section 3: Shard Breakdown ===
-  drawSeparator(y); y += 14;
-  drawSectionLabel('Shard Breakdown', y); y += 20;
+  drawSeparator(y); y += 10;
+  drawSectionLabel('Shard Breakdown', y); y += 14;
+  const shardPanelY = y - 4;
+  const shardLineH = 16;
+  let shardPanelH = 96;
+  if (s.recordShards > 0) shardPanelH += shardLineH;
+  if (s.bossShards > 0) shardPanelH += shardLineH;
+  if (s.hasShardMagnet) shardPanelH += shardLineH;
+  if (s.isHardcore) shardPanelH += shardLineH + (s.hardcoreMilestoneBonus > 0 ? shardLineH : 0) + (s.hardcoreFirstClearBonus > 0 ? 20 : 0);
+  drawPanel(W * 0.22, shardPanelY, W * 0.56, shardPanelH, '#66cfff');
 
+  y = shardPanelY + 20;
   ctx.font = '14px ' + FONT;
   ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
   ctx.fillStyle = '#00E5FF';
-  ctx.fillText('Shards Collected: +' + s.collectedShards, W / 2, y); y += 18;
+  ctx.fillText('Shards Collected: +' + s.collectedShards, W / 2, y); y += shardLineH;
   ctx.fillStyle = '#aaaaaa';
-  ctx.fillText('Wave Bonus: +' + s.waveShards, W / 2, y); y += 18;
-  ctx.fillText('Score Bonus: +' + s.scoreShards, W / 2, y); y += 18;
+  ctx.fillText('Wave Bonus: +' + s.waveShards, W / 2, y); y += shardLineH;
+  ctx.fillText('Score Bonus: +' + s.scoreShards, W / 2, y); y += shardLineH;
   if (s.recordShards > 0) {
     ctx.fillStyle = '#ffdd44';
-    ctx.fillText('New Record: +' + s.recordShards, W / 2, y); y += 18;
+    ctx.fillText('New Record: +' + s.recordShards, W / 2, y); y += shardLineH;
   }
   if (s.bossShards > 0) {
     ctx.fillStyle = '#ffdd44';
-    ctx.fillText('Bosses: +' + s.bossShards, W / 2, y); y += 18;
+    ctx.fillText('Bosses: +' + s.bossShards, W / 2, y); y += shardLineH;
   }
   if (s.hasShardMagnet) {
     ctx.fillStyle = '#ffdd44';
-    ctx.fillText('Shard Magnet: x1.25', W / 2, y); y += 18;
+    ctx.fillText('Shard Magnet: x1.25', W / 2, y); y += shardLineH;
   }
   if (s.isHardcore) {
     ctx.fillStyle = '#cc2222';
-    ctx.fillText('Hardcore: x1.75', W / 2, y); y += 18;
+    ctx.fillText('Hardcore: x1.75', W / 2, y); y += shardLineH;
     if (s.hardcoreMilestoneBonus > 0) {
       ctx.fillStyle = '#cc2222';
-      ctx.fillText('Wave Milestone: +' + s.hardcoreMilestoneBonus, W / 2, y); y += 18;
+      ctx.fillText('Wave Milestone: +' + s.hardcoreMilestoneBonus, W / 2, y); y += shardLineH;
     }
     if (s.hardcoreFirstClearBonus > 0) {
       ctx.fillStyle = '#ffdd44';
       ctx.font = 'bold 15px ' + FONT;
-      ctx.fillText('FIRST HARDCORE CLEAR: +500!', W / 2, y); y += 18;
+      ctx.fillText('FIRST HARDCORE CLEAR: +500!', W / 2, y); y += 20;
       ctx.font = '14px ' + FONT;
     }
   }
-  if (s.endlessUnlocked) {
-    const unlockPulse = 0.5 + 0.5 * Math.sin(Date.now() / 400 * Math.PI);
-    ctx.save();
-    ctx.globalAlpha = unlockPulse;
-    ctx.fillStyle = '#ffdd44';
-    ctx.font = 'bold 15px ' + FONT;
-    ctx.fillText('Endless Mode Unlocked!', W / 2, y);
-    ctx.restore();
-    y += 22;
-  }
+  y = shardPanelY + shardPanelH + 10;
 
   // Total shards (animated counter)
-  y += 6;
-  drawSeparator(y); y += 16;
+  drawSeparator(y); y += 12;
+  drawPanel(W * 0.22, y - 12, W * 0.56, s.endlessUnlocked ? 84 : 64, '#ffdd44');
+  if (s.endlessUnlocked) {
+    const unlockPulse = 0.72 + 0.28 * Math.sin(Date.now() / 400 * Math.PI);
+    ctx.save();
+    ctx.globalAlpha = unlockPulse;
+    ctx.font = 'bold 15px ' + FONT;
+    ctx.fillStyle = '#ffdd44';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('Endless Mode Unlocked!', W / 2, y + 2);
+    ctx.restore();
+    y += 20;
+  }
   ctx.font = 'bold 24px ' + FONT;
   ctx.fillStyle = '#ffdd44';
   ctx.shadowColor = '#ffdd44';
   ctx.shadowBlur = 6;
-  ctx.fillText('Shards Earned: ' + Math.floor(G.runSummaryShardCounter), W / 2, y);
+  ctx.fillText('Shards Earned: ' + Math.floor(G.runSummaryShardCounter), W / 2, y + 6);
   ctx.shadowBlur = 0;
   y += 28;
 
-  ctx.font = '16px ' + FONT;
-  ctx.fillStyle = '#888888';
-  ctx.fillText('Total Shards: ' + G.meta.shards, W / 2, y);
+  ctx.font = '15px ' + FONT;
+  ctx.fillStyle = '#9da6b7';
+  ctx.fillText('Total Shards: ' + G.meta.shards, W / 2, y + 2);
   y += 28;
 
   // Unlock hint
   const cheapest = getCheapestLockedUpgrade(G.meta);
-  if (cheapest && G.meta.shards >= cheapest.cost) {
+  if (!s.endlessUnlocked && cheapest && G.meta.shards >= cheapest.cost) {
+    y += 8;
     const hintPulse = 0.5 + 0.5 * Math.sin(Date.now() / 500 * Math.PI);
     ctx.save();
     ctx.globalAlpha = hintPulse;
-    ctx.font = '15px ' + FONT;
+    ctx.font = '14px ' + FONT;
     ctx.fillStyle = '#ffdd44';
     ctx.fillText('New upgrades available!', W / 2, y);
     ctx.restore();
@@ -1706,11 +3233,766 @@ function drawRunSummary() {
     const contPulse = 0.4 + 0.6 * Math.sin(Date.now() / 600 * Math.PI);
     ctx.save();
     ctx.globalAlpha = contPulse;
-    ctx.font = '16px ' + FONT;
-    ctx.fillStyle = '#888888';
-    ctx.fillText('Press any key to continue', W / 2, H - 50);
+    ctx.font = '14px ' + FONT;
+    ctx.fillStyle = '#7f8a9f';
+    ctx.fillText(canShowRelayChamber() ? 'Press any key to return to the relay' : 'Press any key to continue', W / 2, H - 22);
     ctx.restore();
   }
+
+  ctx.restore();
+}
+
+function drawRelayChamber() {
+  ctx.save();
+  ctx.fillStyle = '#07111a';
+  ctx.fillRect(0, 0, W, H);
+
+  const bgGlow = ctx.createRadialGradient(W * 0.74, H * 0.34, 0, W * 0.74, H * 0.34, 320);
+  bgGlow.addColorStop(0, 'rgba(90, 220, 255, 0.13)');
+  bgGlow.addColorStop(0.6, 'rgba(50, 100, 190, 0.05)');
+  bgGlow.addColorStop(1, 'rgba(0, 0, 0, 0)');
+  ctx.fillStyle = bgGlow;
+  ctx.fillRect(0, 0, W, H);
+
+  ctx.globalAlpha = 0.16;
+  ctx.drawImage(bgGridCanvas, 0, 0);
+  ctx.globalAlpha = 0.32;
+  ctx.drawImage(gridCanvas, 0, 0);
+  ctx.globalAlpha = 1;
+
+  const chamber = G.relayChamber;
+  if (!chamber) { ctx.restore(); return; }
+
+  const previewLoadout = LOADOUTS[chamber.loadoutIndex] || LOADOUTS[0];
+  const selectedLoadout = LOADOUTS.find(l => l.id === G.meta.selectedLoadout) || LOADOUTS[0];
+  const previewUnlocked = isLoadoutUnlocked(G.meta, previewLoadout.id);
+  const previewSelected = previewLoadout.id === selectedLoadout.id;
+  const lore = RELAY_LORE_LINES[chamber.loreIndex % RELAY_LORE_LINES.length];
+  const ctaActions = ['runback', 'upgrades', 'menu'];
+  const focusSection = chamber.focusSection || 'cta';
+  const previewTheme = {
+    standard: { accent: '#6ff7ff', glow: '#6ff7ff', tint: 'rgba(111,247,255,0.16)', title: 'Balanced redeploy' },
+    glass_cannon: { accent: '#ffb27c', glow: '#ff9966', tint: 'rgba(255,153,102,0.15)', title: 'Precision striker' },
+    tank: { accent: '#81f3c2', glow: '#5bd8a0', tint: 'rgba(91,216,160,0.16)', title: 'Fortress chassis' },
+    hardcore: { accent: '#ff8492', glow: '#ff5c6f', tint: 'rgba(255,92,111,0.17)', title: 'Single-life frame' },
+  }[previewLoadout.id] || { accent: '#6ff7ff', glow: '#6ff7ff', tint: 'rgba(111,247,255,0.16)', title: 'Balanced redeploy' };
+
+  const drawPanel = (x, y, w, h, accent, alpha = 0.78) => {
+    ctx.save();
+    ctx.fillStyle = `rgba(9, 14, 28, ${alpha})`;
+    ctx.beginPath();
+    ctx.roundRect(x, y, w, h, 18);
+    ctx.fill();
+    ctx.strokeStyle = accent;
+    ctx.globalAlpha = 0.24;
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+    ctx.restore();
+  };
+
+  const drawHeaderPill = (x, y, w, label, value, accent) => {
+    ctx.save();
+    ctx.fillStyle = 'rgba(10, 16, 30, 0.76)';
+    ctx.beginPath();
+    ctx.roundRect(x, y, w, 30, 15);
+    ctx.fill();
+    ctx.strokeStyle = accent;
+    ctx.globalAlpha = 0.28;
+    ctx.stroke();
+    ctx.globalAlpha = 1;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.font = '11px ' + FONT;
+    ctx.fillStyle = '#8fa7c8';
+    ctx.fillText(label, x + w / 2, y + 10);
+    ctx.font = 'bold 14px ' + FONT;
+    ctx.fillStyle = accent;
+    ctx.fillText(value, x + w / 2, y + 21);
+    ctx.restore();
+  };
+
+  drawGlowText('RELAY CHAMBER', W / 2, 44, 'bold 30px ' + FONT, '#ffffff', '#6ff7ff', 9);
+  drawHeaderPill(168, 66, 206, 'BANKED THIS RUN', '+' + chamber.shardGain + ' shards', '#ffdd66');
+  drawHeaderPill(426, 66, 206, 'TOTAL SHARDS', String(chamber.totalShards), '#6ff7ff');
+
+  drawPanel(40, 112, 248, 94, '#7ecbff');
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'top';
+  ctx.font = 'bold 16px ' + FONT;
+  ctx.fillStyle = '#dfeaff';
+  ctx.fillText('Recovery loop stable.', 62, 132);
+  ctx.font = '13px ' + FONT;
+  ctx.fillStyle = '#98abc4';
+  const loreLines = lore;
+  for (let i = 0; i < loreLines.length; i++) {
+    ctx.fillText(loreLines[i], 62, 160 + i * 18);
+  }
+
+  drawPanel(40, 220, 320, 248, '#ffd86f');
+  ctx.font = 'bold 15px ' + FONT;
+  ctx.fillStyle = '#ffd86f';
+  ctx.fillText('QUICK SPEND', 62, 240);
+  ctx.font = '12px ' + FONT;
+  ctx.fillStyle = '#8395b1';
+  ctx.fillText('Buy a calibration and stay in the loop.', 62, 261);
+
+  G._relayUpgradeRects = [];
+  const quickUpgradeIds = chamber.quickUpgradeIds || [];
+  if (quickUpgradeIds.length === 0) {
+    ctx.font = '14px ' + FONT;
+    ctx.fillStyle = '#a7b6cb';
+    ctx.fillText('All chamber calibrations are already installed.', 62, 314);
+    ctx.fillStyle = '#70809a';
+    ctx.fillText('Open the full upgrades view to review your meta build.', 62, 336);
+  } else {
+    for (let i = 0; i < quickUpgradeIds.length; i++) {
+      const upgrade = UPGRADES.find(u => u.id === quickUpgradeIds[i]);
+      if (!upgrade) continue;
+      const tierUnlocked = isTierUnlocked(G.meta, upgrade.tier);
+      const affordable = canPurchaseUpgrade(G.meta, upgrade.id);
+      const status = affordable
+        ? `Ready • ${upgrade.cost} shards`
+        : (tierUnlocked ? `Need ${upgrade.cost - G.meta.shards} more shards` : `Unlock Tier ${upgrade.tier} first`);
+      const summary = RELAY_UPGRADE_COPY[upgrade.id] || upgrade.effect;
+      const cardX = 58;
+      const cardY = 274 + i * 46;
+      const cardW = 284;
+      const cardH = 42;
+      const isFocused = focusSection === 'upgrades' && chamber.upgradeIndex === i;
+      const isHovered = G._relayHoverUpgradeIndex === i;
+      G._relayUpgradeRects[i] = { x: cardX, y: cardY, w: cardW, h: cardH };
+
+      ctx.save();
+      if (isFocused || isHovered) {
+        ctx.shadowColor = affordable ? '#ffd86f' : '#a2b7d7';
+        ctx.shadowBlur = 10;
+      }
+      ctx.fillStyle = affordable ? 'rgba(31, 39, 58, 0.94)' : 'rgba(18, 24, 40, 0.92)';
+      ctx.beginPath();
+      ctx.roundRect(cardX, cardY, cardW, cardH, 10);
+      ctx.fill();
+      ctx.shadowBlur = 0;
+      ctx.strokeStyle = affordable
+        ? ((isFocused || isHovered) ? '#ffd86f' : 'rgba(255,216,111,0.38)')
+        : ((isFocused || isHovered) ? '#8aa3c4' : 'rgba(138,163,196,0.24)');
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+      ctx.fillStyle = affordable ? '#ffd86f' : '#5f728e';
+      ctx.beginPath();
+      ctx.roundRect(cardX + 8, cardY + 8, 4, cardH - 16, 2);
+      ctx.fill();
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'middle';
+      ctx.font = 'bold 13px ' + FONT;
+      ctx.fillStyle = affordable ? '#ffffff' : '#d7deea';
+      ctx.fillText(upgrade.name, cardX + 20, cardY + 13);
+      ctx.textAlign = 'right';
+      ctx.font = '10px ' + FONT;
+      ctx.fillStyle = affordable ? '#ffd86f' : '#8fa2bc';
+      ctx.fillText(status, cardX + cardW - 16, cardY + 13);
+      ctx.textAlign = 'left';
+      ctx.font = '10px ' + FONT;
+      ctx.fillStyle = affordable ? '#8fa2bc' : '#95a4ba';
+      ctx.fillText(summary, cardX + 20, cardY + 29);
+      ctx.restore();
+    }
+  }
+
+  drawPanel(388, 112, 372, 342, previewTheme.accent);
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'top';
+  ctx.font = 'bold 15px ' + FONT;
+  ctx.fillStyle = previewTheme.accent;
+  ctx.fillText('LOADOUT', 410, 132);
+
+  const pulse = 0.84 + 0.16 * Math.sin(Date.now() / 500);
+  ctx.save();
+  ctx.translate(578, 258);
+  ctx.globalAlpha = 0.34;
+  ctx.strokeStyle = previewTheme.glow;
+  ctx.lineWidth = 2;
+  for (let i = 0; i < 3; i++) {
+    ctx.beginPath();
+    ctx.arc(0, 0, 32 + i * 18, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+  ctx.globalAlpha = 0.18 + 0.08 * pulse;
+  ctx.fillStyle = previewTheme.tint;
+  ctx.beginPath();
+  ctx.arc(0, 0, 88, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.globalAlpha = 1;
+  ctx.shadowColor = previewTheme.glow;
+  ctx.shadowBlur = 18;
+  ctx.fillStyle = '#ffffff';
+  ctx.beginPath();
+  ctx.arc(0, 0, 18, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.shadowBlur = 0;
+  ctx.fillStyle = '#111111';
+  ctx.beginPath();
+  ctx.arc(-5, -2, 2.6, 0, Math.PI * 2);
+  ctx.arc(5, -2, 2.6, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+
+  ctx.font = getRelayFittedFont(previewLoadout.name, 220, 24, 18);
+  ctx.textAlign = 'center';
+  ctx.fillStyle = previewUnlocked ? '#ffffff' : '#c6cfdb';
+  ctx.fillText(previewLoadout.name, 578, 146);
+  ctx.font = getRelayFittedFont(previewTheme.title, 180, 13, 11);
+  ctx.fillStyle = previewTheme.accent;
+  ctx.fillText(previewTheme.title, 578, 168);
+  ctx.font = '13px ' + FONT;
+  ctx.fillStyle = previewUnlocked ? '#d7e1f1' : '#a9b4c4';
+  ctx.fillText(previewSelected ? 'Current deployment frame' : (previewUnlocked ? 'Ready to equip' : 'Locked frame'), 578, 338);
+
+  const statPills = [
+    { label: 'HP', value: previewLoadout.hp },
+    { label: 'STA', value: previewLoadout.stamina },
+    { label: 'SCORE', value: 'x' + previewLoadout.scoreMod },
+  ];
+  for (let i = 0; i < statPills.length; i++) {
+    const x = 430 + i * 106;
+    ctx.fillStyle = 'rgba(255,255,255,0.05)';
+    ctx.beginPath();
+    ctx.roundRect(x, 344, 92, 42, 12);
+    ctx.fill();
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.font = '11px ' + FONT;
+    ctx.fillStyle = '#8fa2bc';
+    ctx.fillText(statPills[i].label, x + 46, 356);
+    ctx.font = 'bold 18px ' + FONT;
+    ctx.fillStyle = '#ffffff';
+    ctx.fillText(String(statPills[i].value), x + 46, 375);
+  }
+
+  ctx.font = 'bold 13px ' + FONT;
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'top';
+  ctx.fillStyle = '#d7e1f1';
+  ctx.fillText('Starting kit', 416, 402);
+  ctx.font = '12px ' + FONT;
+  ctx.fillStyle = previewUnlocked ? '#9ab0cb' : '#aeb8c8';
+  const previewStartText = previewLoadout.powers.length > 0
+    ? previewLoadout.powers.join(', ')
+    : (previewLoadout.id === 'hardcore' ? 'No powers. No revives. Fewer picks.' : 'No starting powers.');
+  const startLines = wrapRelayText(previewStartText, 300, 2);
+  for (let i = 0; i < startLines.length; i++) {
+    ctx.fillText(startLines[i], 416, 416 + i * 14);
+  }
+  if (!previewUnlocked) {
+    const lockText = previewLoadout.id === 'hardcore'
+      ? (G.meta.hardcoreUnlocked ? 'Unlocked elsewhere.' : 'Reach Wave 15 • 250 shards')
+      : ('Earn ' + previewLoadout.unlockCost + ' total shards to unlock.');
+    ctx.font = '11px ' + FONT;
+    ctx.fillStyle = '#ffb6bf';
+    const lockLines = wrapRelayText(lockText, 300, 2);
+    for (let i = 0; i < lockLines.length; i++) {
+      ctx.fillText(lockLines[i], 416, 440 + i * 12);
+    }
+  }
+
+  G._relayLoadoutRects = [];
+  for (let i = 0; i < LOADOUTS.length; i++) {
+    const loadout = LOADOUTS[i];
+    const x = 408 + i * 86;
+    const y = 460;
+    const w = 72;
+    const h = 40;
+    const unlocked = isLoadoutUnlocked(G.meta, loadout.id);
+    const selected = G.meta.selectedLoadout === loadout.id;
+    const focused = focusSection === 'loadouts' && chamber.loadoutIndex === i;
+    const hovered = G._relayHoverLoadoutIndex === i;
+    G._relayLoadoutRects[i] = { x, y, w, h };
+
+    ctx.save();
+    if (focused || hovered) {
+      ctx.shadowColor = unlocked ? '#6ff7ff' : '#9aa8bc';
+      ctx.shadowBlur = 10;
+    }
+    ctx.fillStyle = unlocked ? 'rgba(18, 24, 40, 0.94)' : 'rgba(20, 22, 34, 0.92)';
+    ctx.beginPath();
+    ctx.roundRect(x, y, w, h, 12);
+    ctx.fill();
+    ctx.shadowBlur = 0;
+    ctx.strokeStyle = selected
+      ? previewTheme.accent
+      : ((focused || hovered) ? 'rgba(200,225,255,0.45)' : 'rgba(120,150,190,0.18)');
+    ctx.lineWidth = selected || focused || hovered ? 1.8 : 1;
+    ctx.stroke();
+    ctx.font = 'bold 11px ' + FONT;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = unlocked ? '#ffffff' : '#aeb8c8';
+    ctx.fillText(loadout.name === 'Glass Cannon' ? 'Glass' : loadout.name, x + w / 2, y + 15);
+    ctx.font = '9px ' + FONT;
+    ctx.fillStyle = unlocked ? (selected ? previewTheme.accent : '#8fa2bc') : '#7f8ea3';
+    ctx.fillText(unlocked ? (selected ? 'Equipped' : 'Preview') : 'Locked', x + w / 2, y + 30);
+    ctx.restore();
+  }
+
+  const runItBackRect = { x: 40, y: 514, w: 332, h: 48 };
+  const upgradesRect = { x: 390, y: 514, w: 206, h: 48 };
+  const menuRect = { x: 614, y: 514, w: 146, h: 48 };
+  G._relayActionRects = { runback: runItBackRect, upgrades: upgradesRect, menu: menuRect };
+
+  const drawActionButton = (rect, label, sublabel, action, primary = false) => {
+    const focused = focusSection === 'cta' && ctaActions[chamber.ctaIndex] === action;
+    const hovered = G._relayHoverAction === action;
+    ctx.save();
+    if (focused || hovered) {
+      ctx.shadowColor = primary ? '#6ff7ff' : '#b0bfd7';
+      ctx.shadowBlur = primary ? 18 : 10;
+    }
+    ctx.fillStyle = primary ? 'rgba(18, 56, 76, 0.92)' : 'rgba(11, 16, 28, 0.92)';
+    ctx.beginPath();
+    ctx.roundRect(rect.x, rect.y, rect.w, rect.h, 18);
+    ctx.fill();
+    ctx.shadowBlur = 0;
+    ctx.strokeStyle = primary
+      ? ((focused || hovered) ? '#6ff7ff' : 'rgba(111,247,255,0.5)')
+      : ((focused || hovered) ? '#dce8ff' : 'rgba(190,205,230,0.25)');
+    ctx.lineWidth = primary ? 2 : 1.5;
+    ctx.stroke();
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.font = primary ? ('bold 20px ' + FONT) : ('bold 15px ' + FONT);
+    ctx.fillStyle = primary ? '#ffffff' : '#d7e1f1';
+    ctx.fillText(label, rect.x + rect.w / 2, rect.y + 18);
+    ctx.font = '10px ' + FONT;
+    ctx.fillStyle = primary ? '#bceeff' : '#8fa2bc';
+    ctx.fillText(sublabel, rect.x + rect.w / 2, rect.y + 34);
+    ctx.restore();
+  };
+
+  drawActionButton(runItBackRect, 'Run It Back', 'Re-enter the loop', 'runback', true);
+  drawActionButton(upgradesRect, 'Open Upgrades', 'Tune the chamber', 'upgrades');
+  drawActionButton(menuRect, 'Main Menu', 'Leave the relay', 'menu');
+
+  ctx.font = '12px ' + FONT;
+  ctx.textAlign = 'center';
+  ctx.fillStyle = '#7f91ad';
+  ctx.fillText('Quick buy, tune your frame, and dive back into the grid.', W / 2, 584);
+
+  ctx.restore();
+}
+
+function drawTransitionRoom() {
+  ctx.save();
+  const room = G.transitionRoom;
+  if (!room) { ctx.restore(); return; }
+
+  if (room.outroActive) {
+    ctx.fillStyle = '#02050b';
+    ctx.fillRect(0, 0, W, H);
+    const outroAccent = room.commitColor || '#ffffff';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.font = 'bold 12px ' + FONT;
+    ctx.fillStyle = outroAccent;
+    ctx.fillText(room.mode === 'epilogue' ? room.title : 'LINE CHOSEN', W / 2, room.mode === 'epilogue' ? 192 : 250);
+    ctx.font = room.mode === 'epilogue' ? ('bold 22px ' + FONT) : ('bold 24px ' + FONT);
+    ctx.fillStyle = '#ffffff';
+    const commitLines = room.mode === 'epilogue'
+      ? wrapRelayParagraphs(room.commitLine || room.continueWhisper || 'The chamber holds your line.', 620, 2)
+      : wrapRelayText(room.commitLine || room.continueWhisper || 'The chamber holds your line.', 540, 3);
+    for (let i = 0; i < commitLines.length; i++) {
+      ctx.fillText(commitLines[i], W / 2, (room.mode === 'epilogue' ? 252 : 300) + i * (room.mode === 'epilogue' ? 28 : 30));
+    }
+    ctx.restore();
+    return;
+  }
+
+  if (room.preludeActive) {
+    ctx.fillStyle = '#02050b';
+    ctx.fillRect(0, 0, W, H);
+    const preludeGlow = ctx.createRadialGradient(W * 0.5, H * 0.38, 0, W * 0.5, H * 0.38, 280);
+    const preludeAccent = room.mode === 'boss_approach'
+      ? '255,155,124'
+      : room.mode === 'chapter_return'
+        ? '124,227,255'
+        : '255,216,111';
+    preludeGlow.addColorStop(0, `rgba(${preludeAccent},0.09)`);
+    preludeGlow.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = preludeGlow;
+    ctx.fillRect(0, 0, W, H);
+
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.font = 'bold 14px ' + FONT;
+    ctx.fillStyle = room.mode === 'boss_approach'
+      ? '#ffb091'
+      : room.mode === 'chapter_return'
+        ? '#7ce3ff'
+        : '#ffd86f';
+    ctx.fillText(room.title, W / 2, 146);
+
+    ctx.font = 'bold 30px ' + FONT;
+    ctx.fillStyle = '#ffffff';
+    const arrivalLines = wrapRelayText(room.arrivalLine, 580, 3);
+    for (let i = 0; i < arrivalLines.length; i++) {
+      ctx.fillText(arrivalLines[i], W / 2, 232 + i * 34);
+    }
+    if (room.followLine) {
+      ctx.font = '16px ' + FONT;
+      ctx.fillStyle = '#9db1cb';
+      const followLines = wrapRelayText(room.followLine, 560, 2);
+      for (let i = 0; i < followLines.length; i++) {
+        ctx.fillText(followLines[i], W / 2, 312 + i * 22);
+      }
+    }
+
+    if (room.preludeReady) {
+      ctx.font = '12px ' + FONT;
+      ctx.fillStyle = '#c7d4e9';
+      ctx.fillText('Click or press any key to proceed', W / 2, 520);
+    }
+
+    ctx.restore();
+    return;
+  }
+
+  ctx.fillStyle = '#07111a';
+  ctx.fillRect(0, 0, W, H);
+
+  const bgGlow = ctx.createRadialGradient(W * 0.5, H * 0.24, 0, W * 0.5, H * 0.24, 400);
+  bgGlow.addColorStop(0, 'rgba(130, 190, 255, 0.08)');
+  bgGlow.addColorStop(0.65, 'rgba(60, 90, 160, 0.035)');
+  bgGlow.addColorStop(1, 'rgba(0, 0, 0, 0)');
+  ctx.fillStyle = bgGlow;
+  ctx.fillRect(0, 0, W, H);
+  ctx.globalAlpha = 0.12;
+  ctx.drawImage(bgGridCanvas, 0, 0);
+  ctx.globalAlpha = 0.28;
+  ctx.drawImage(gridCanvas, 0, 0);
+  ctx.globalAlpha = 1;
+
+  const roomAccent = room.mode === 'boss_approach'
+    ? '#ff9b7c'
+    : room.mode === 'chapter_return'
+      ? '#7ce3ff'
+      : '#ffd86f';
+  const pulse = 0.7 + 0.3 * Math.sin(Date.now() / 600);
+  const activeIndex = room.selectedIndex >= 0 ? room.selectedIndex : (room.hoverIndex >= 0 ? room.hoverIndex : room.cursor);
+  const activeOption = room.options?.[activeIndex] || null;
+
+  const floorGrad = ctx.createLinearGradient(0, H * 0.30, 0, H);
+  floorGrad.addColorStop(0, 'rgba(10,18,30,0)');
+  floorGrad.addColorStop(1, 'rgba(6,10,18,0.82)');
+  ctx.fillStyle = floorGrad;
+  ctx.beginPath();
+  ctx.moveTo(122, H * 0.30);
+  ctx.lineTo(W - 122, H * 0.30);
+  ctx.lineTo(W - 28, H);
+  ctx.lineTo(28, H);
+  ctx.closePath();
+  ctx.fill();
+
+  ctx.save();
+  ctx.globalAlpha = 0.18;
+  const wallGradL = ctx.createLinearGradient(52, 0, 120, 0);
+  wallGradL.addColorStop(0, 'rgba(12,22,40,0.88)');
+  wallGradL.addColorStop(1, 'rgba(12,22,40,0)');
+  ctx.fillStyle = wallGradL;
+  ctx.beginPath();
+  ctx.moveTo(44, 84);
+  ctx.lineTo(124, 124);
+  ctx.lineTo(124, H - 70);
+  ctx.lineTo(60, H);
+  ctx.lineTo(36, H);
+  ctx.closePath();
+  ctx.fill();
+  const wallGradR = ctx.createLinearGradient(W - 52, 0, W - 120, 0);
+  wallGradR.addColorStop(0, 'rgba(12,22,40,0.88)');
+  wallGradR.addColorStop(1, 'rgba(12,22,40,0)');
+  ctx.fillStyle = wallGradR;
+  ctx.beginPath();
+  ctx.moveTo(W - 44, 84);
+  ctx.lineTo(W - 124, 124);
+  ctx.lineTo(W - 124, H - 70);
+  ctx.lineTo(W - 60, H);
+  ctx.lineTo(W - 36, H);
+  ctx.closePath();
+  ctx.fill();
+  ctx.restore();
+
+  const drawPathLine = (x1, y1, x2, y2, accent, active = false) => {
+    ctx.save();
+    ctx.lineCap = 'round';
+    if (active) {
+      ctx.setLineDash([12, 10]);
+      ctx.lineDashOffset = -(Date.now() / 36) % 22;
+      ctx.strokeStyle = accent;
+      ctx.globalAlpha = 0.9;
+      ctx.lineWidth = 3;
+      ctx.shadowColor = accent;
+      ctx.shadowBlur = 16;
+    } else {
+      ctx.strokeStyle = 'rgba(122, 160, 205, 0.16)';
+      ctx.lineWidth = 2;
+      ctx.globalAlpha = 1;
+    }
+    ctx.beginPath();
+    ctx.moveTo(x1, y1);
+    ctx.lineTo(x2, y2);
+    ctx.stroke();
+    ctx.restore();
+  };
+
+  const drawRingGate = (gx, gy, r, accent, focused, broken = false, intensity = 1) => {
+    ctx.save();
+    ctx.strokeStyle = accent;
+    ctx.lineWidth = focused ? 3 : 2;
+    ctx.globalAlpha = broken ? 0.32 : 1;
+    for (let i = 0; i < 3; i++) {
+      ctx.beginPath();
+      ctx.arc(gx, gy, r + i * 12 + pulse * (focused ? 4 : 2), 0, Math.PI * 2);
+      ctx.stroke();
+    }
+    const rgb = accent === '#ff9b7c'
+      ? '255,155,124'
+      : accent === '#ffd86f'
+        ? '255,216,111'
+        : '124,227,255';
+    ctx.fillStyle = `rgba(${rgb},${focused ? 0.16 * intensity : 0.08 * intensity})`;
+    ctx.beginPath();
+    ctx.arc(gx, gy, r + 10, 0, Math.PI * 2);
+    ctx.fill();
+    if (focused) {
+      ctx.globalAlpha = 1;
+      ctx.shadowColor = accent;
+      ctx.shadowBlur = 24;
+      ctx.beginPath();
+      ctx.arc(gx, gy, r + 16, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.shadowBlur = 0;
+    }
+    if (broken) {
+      ctx.strokeStyle = '#ffe0e5';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(gx - 14, gy - 14);
+      ctx.lineTo(gx + 14, gy + 14);
+      ctx.moveTo(gx + 14, gy - 14);
+      ctx.lineTo(gx - 14, gy + 14);
+      ctx.stroke();
+    }
+    ctx.restore();
+  };
+
+  const drawChip = (x, y, text, accent, focused = false) => {
+    ctx.save();
+    ctx.font = 'bold 10px ' + FONT;
+    const w = Math.max(58, ctx.measureText(text).width + 22);
+    ctx.fillStyle = focused ? 'rgba(11, 20, 34, 0.94)' : 'rgba(8, 15, 26, 0.84)';
+    ctx.strokeStyle = focused ? accent : 'rgba(165, 185, 220, 0.18)';
+    ctx.lineWidth = focused ? 1.5 : 1;
+    ctx.beginPath();
+    ctx.roundRect(x - w / 2, y - 11, w, 22, 11);
+    ctx.fill();
+    ctx.stroke();
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = focused ? '#ffffff' : '#d7e2f5';
+    ctx.fillText(text, x, y + 0.5);
+    ctx.restore();
+  };
+
+  const drawBreadcrumb = () => {
+    const startX = W - 218;
+    const y = 56;
+    ctx.save();
+    ctx.lineWidth = 1.5;
+    ctx.strokeStyle = 'rgba(132, 156, 193, 0.28)';
+    ctx.beginPath();
+    ctx.moveTo(startX, y);
+    ctx.lineTo(startX + 66, y);
+    ctx.lineTo(startX + 132, y);
+    ctx.stroke();
+    room.routeNodes.forEach((node, i) => {
+      const x = startX + i * 66;
+      const color = node.state === 'lit'
+        ? '#7ce3ff'
+        : node.state === 'broken'
+          ? '#ff9ca8'
+          : node.state === 'threat'
+            ? '#ffb091'
+            : node.state === 'active'
+              ? '#dce7ff'
+              : 'rgba(130, 150, 178, 0.65)';
+      ctx.fillStyle = color;
+      ctx.beginPath();
+      ctx.arc(x, y, i === 1 ? 7 : 5, 0, Math.PI * 2);
+      ctx.fill();
+      if (node.state === 'broken') {
+        ctx.strokeStyle = '#ffe0e5';
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.moveTo(x - 7, y - 7);
+        ctx.lineTo(x + 7, y + 7);
+        ctx.moveTo(x + 7, y - 7);
+        ctx.lineTo(x - 7, y + 7);
+        ctx.stroke();
+      }
+    });
+    ctx.font = 'bold 10px ' + FONT;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+    ctx.fillStyle = '#90a4c2';
+    ctx.fillText(getActLabel(room.actIndex), startX, y + 12);
+    ctx.fillText(room.mode === 'epilogue' ? 'Core' : 'Gate', startX + 66, y + 12);
+    ctx.fillText(room.mode === 'epilogue' ? 'Relay' : getActLabel(Math.min(3, room.actIndex + 1)), startX + 132, y + 12);
+    ctx.restore();
+  };
+
+  const playerX = G.player?.x ?? room.spawn.x;
+  const playerY = G.player?.y ?? room.spawn.y;
+  const corridorTop = room.mode === 'epilogue' ? room.exitGate?.y || H * 0.18 : room.bossGate?.y || H * 0.18;
+  ctx.save();
+  ctx.strokeStyle = 'rgba(130, 168, 210, 0.08)';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(W * 0.5, H);
+  ctx.lineTo(W * 0.5, corridorTop + 48);
+  ctx.stroke();
+  ctx.restore();
+
+  if (room.seal) {
+    drawRingGate(room.seal.x, room.seal.y, 22, room.mode === 'chapter_return' || room.mode === 'epilogue' ? '#c37484' : '#6d7f9a', false, room.mode !== 'boss_approach', 0.8);
+  }
+  if (room.gates?.length) {
+    room.gates.forEach((gate, i) => {
+      drawPathLine(playerX, playerY - 8, gate.x, gate.y + 18, gate.accent, activeIndex === i);
+    });
+  }
+  if (room.mode === 'epilogue' && room.exitGate) {
+    drawPathLine(playerX, playerY - 8, room.exitGate.x, room.exitGate.y + 22, room.exitGate.accent, true);
+  }
+
+  if (room.seal) {
+    ctx.save();
+    ctx.fillStyle = 'rgba(10, 16, 28, 0.7)';
+    ctx.beginPath();
+    ctx.ellipse(room.seal.x, room.seal.y + 10, 84, 18, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+  if (room.bossGate) {
+    drawRingGate(room.bossGate.x, room.bossGate.y, 28, '#ff9b7c', true, false, 1.1);
+    ctx.save();
+    const bossGateGlow = ctx.createRadialGradient(room.bossGate.x, room.bossGate.y - 24, 0, room.bossGate.x, room.bossGate.y - 24, 110);
+    bossGateGlow.addColorStop(0, 'rgba(255,170,138,0.26)');
+    bossGateGlow.addColorStop(0.45, 'rgba(255,155,124,0.12)');
+    bossGateGlow.addColorStop(1, 'rgba(255,155,124,0)');
+    ctx.fillStyle = bossGateGlow;
+    ctx.beginPath();
+    ctx.ellipse(room.bossGate.x, room.bossGate.y - 18, 104, 144, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'bottom';
+    ctx.font = 'bold 12px ' + FONT;
+    ctx.fillStyle = '#ffd7cb';
+    ctx.fillText(BOSS_DEFS[room.bossType]?.name || 'Boss Gate', room.bossGate.x, room.bossGate.y - 56);
+  }
+  if (room.exitGate) {
+    drawRingGate(room.exitGate.x, room.exitGate.y, 30, room.exitGate.accent, room.hoverIndex === 0 || room.selectedIndex === 0, false, 1.2);
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'bottom';
+    ctx.font = 'bold 12px ' + FONT;
+    ctx.fillStyle = '#fff0b5';
+    ctx.fillText('Relay Exit', room.exitGate.x, room.exitGate.y - 56);
+  }
+
+  if (room.gates) {
+    G._transitionOptionRects = [];
+    for (let i = 0; i < room.gates.length; i++) {
+      const gate = room.gates[i];
+      const option = room.options[i];
+      const focused = room.cursor === i || room.hoverIndex === i || room.selectedIndex === i;
+      drawRingGate(gate.x, gate.y, gate.r, gate.accent, focused, false, 1.1);
+      G._transitionOptionRects[i] = { x: gate.x - 84, y: gate.y - 84, w: 168, h: 196 };
+
+      ctx.save();
+      ctx.fillStyle = 'rgba(9, 16, 28, 0.66)';
+      ctx.beginPath();
+      ctx.ellipse(gate.x, gate.y + 126, 92, 18, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      if (room.mode === 'boss_approach') {
+        ctx.font = 'bold 11px ' + FONT;
+        ctx.fillStyle = gate.accent;
+        ctx.fillText(option.routeLabel.toUpperCase(), gate.x, gate.y - 72);
+      }
+
+      if (option.card) {
+        drawPowerIcon(option.card.icon, option.card.shape, gate.x, gate.y, 20);
+      } else {
+        ctx.save();
+        ctx.translate(gate.x, gate.y);
+        ctx.fillStyle = '#ffffff';
+        if (option.id === 'steady') {
+          ctx.beginPath();
+          ctx.arc(0, 0, 14, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.fillStyle = '#0e1a2a';
+          ctx.fillRect(-4, -10, 8, 20);
+          ctx.fillRect(-10, -4, 20, 8);
+        } else if (option.id === 'risk') {
+          ctx.rotate(Math.PI / 4);
+          ctx.fillRect(-12, -12, 24, 24);
+        } else {
+          ctx.beginPath();
+          ctx.moveTo(0, -15);
+          ctx.lineTo(13, 0);
+          ctx.lineTo(0, 15);
+          ctx.lineTo(-13, 0);
+          ctx.closePath();
+          ctx.fill();
+        }
+        ctx.restore();
+      }
+
+      const titleY = room.mode === 'boss_approach' ? gate.y + 74 : gate.y + 66;
+      ctx.font = getRelayFittedFont(option.title, 154, room.mode === 'boss_approach' ? 18 : 20, 13);
+      ctx.fillStyle = '#ffffff';
+      ctx.fillText(option.title, gate.x, titleY);
+
+      const chips = getTransitionOptionChips(room.mode, option);
+      if (chips.length) {
+        const spacing = 10;
+        ctx.font = 'bold 10px ' + FONT;
+        const widths = chips.map(text => Math.max(58, ctx.measureText(text).width + 22));
+        const totalWidth = widths.reduce((sum, w) => sum + w, 0) + spacing * (chips.length - 1);
+        let cursorX = gate.x - totalWidth / 2;
+        const chipY = room.mode === 'boss_approach' ? gate.y + 100 : gate.y + 96;
+        for (let j = 0; j < chips.length; j++) {
+          const chipCenter = cursorX + widths[j] / 2;
+          drawChip(chipCenter, chipY, chips[j], gate.accent, focused);
+          cursorX += widths[j] + spacing;
+        }
+      }
+    }
+  } else {
+    G._transitionOptionRects = [];
+  }
+  G._transitionContinueRect = room.exitGate
+    ? { x: room.exitGate.x - 84, y: room.exitGate.y - 84, w: 168, h: 196 }
+    : null;
+
+  if (G.player) {
+    drawAfterimages();
+    drawPlayer();
+  }
+  drawParticles();
+  drawCombatTexts();
+
+  drawBreadcrumb();
 
   ctx.restore();
 }
@@ -1746,6 +4028,9 @@ function drawUpgradeScreen() {
   let y = 100;
   for (let tier = 1; tier <= 4; tier++) {
     const tierUnlocked = isTierUnlocked(G.meta, tier);
+    const prevTier = tier - 1;
+    const neededFromPrev = TIER_REQUIREMENTS[tier] || 0;
+    const unlockedFromPrev = prevTier > 0 ? getUnlockedCountForTier(G.meta, prevTier) : 0;
 
     // Tier header
     ctx.font = 'bold 14px ' + FONT;
@@ -1758,6 +4043,14 @@ function drawUpgradeScreen() {
       ctx.fillText('(locked)', 110, y);
     }
     y += 22;
+
+    if (!tierUnlocked) {
+      ctx.font = '12px ' + FONT;
+      ctx.textAlign = 'left';
+      ctx.fillStyle = '#7a8598';
+      ctx.fillText('Unlock ' + neededFromPrev + ' Tier ' + prevTier + ' upgrades (' + unlockedFromPrev + '/' + neededFromPrev + ')', 70, y);
+      y += 18;
+    }
 
     const tierUpgrades = UPGRADES.filter(u => u.tier === tier);
     for (let i = 0; i < tierUpgrades.length; i++) {
@@ -1810,7 +4103,12 @@ function drawUpgradeScreen() {
   ctx.font = '14px ' + FONT;
   ctx.textAlign = 'center';
   ctx.fillStyle = '#555555';
-  ctx.fillText('↑↓ Navigate · Enter/Space to buy · ESC to return', W / 2, H - 30);
+  ctx.fillText(
+    G._upgradesPrevState === STATE.RELAY_CHAMBER
+      ? '↑↓ Navigate · Enter/Space to buy · ESC to return to relay'
+      : '↑↓ Navigate · Enter/Space to buy · ESC to return',
+    W / 2, H - 30
+  );
 
   ctx.restore();
 }
@@ -1831,76 +4129,302 @@ function drawLoadoutScreen() {
   ctx.globalAlpha = 1;
 
   drawGlowText('LOADOUT', W / 2, 60, 'bold 32px ' + FONT, '#ffffff', '#00ffff', 8);
+  const selectedLoadout = LOADOUTS.find(l => l.id === G.meta.selectedLoadout) || LOADOUTS[0];
+  const previewLoadout = LOADOUTS[G.loadoutCursor] || selectedLoadout;
+  const loadoutThemes = {
+    standard: { accent: '#6ff7ff', accentSoft: 'rgba(111,247,255,0.18)', core: '#ffffff', glow: '#6ff7ff', title: 'Balanced starter', desc: ['Stable health, stable stamina, no gimmicks.', 'Great for learning routes and clean bounces.'] },
+    glass_cannon: { accent: '#ff9a6b', accentSoft: 'rgba(255,154,107,0.18)', core: '#fff2e8', glow: '#ff8855', title: 'Precision striker', desc: ['Extra stamina and a Dash Burst start.', 'Fragile, score-positive, and built for clean hits.'] },
+    tank: { accent: '#79ffc1', accentSoft: 'rgba(121,255,193,0.18)', core: '#e9fff5', glow: '#56d89a', title: 'Fortress build', desc: ['Extra health, lower stamina, shield first.', 'Built to stabilize mistakes, not erase them.'] },
+    hardcore: { accent: '#ff6a7b', accentSoft: 'rgba(255,106,123,0.18)', core: '#ffe5e8', glow: '#ff5a66', title: 'One life challenge', desc: ['No safety systems, huge score multiplier.', 'Pure execution, built for mastery runs.'] },
+  };
+  const previewTheme = loadoutThemes[previewLoadout.id] || loadoutThemes.standard;
+  ctx.save();
+  ctx.font = '14px ' + FONT;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillStyle = '#8cbac7';
+  ctx.fillText('Preview: ' + previewLoadout.name, W / 2, 92);
+  ctx.restore();
 
-  let y = 120;
+  const cardW = 216;
+  const cardH = 156;
+  const gapX = 14;
+  const gapY = 18;
+  const startX = 36;
+  const startY = 122;
+
   for (let i = 0; i < LOADOUTS.length; i++) {
     const l = LOADOUTS[i];
+    const col = i % 2;
+    const row = Math.floor(i / 2);
+    const x = startX + col * (cardW + gapX);
+    const y = startY + row * (cardH + gapY);
     const unlocked = isLoadoutUnlocked(G.meta, l.id);
     const selected = G.meta.selectedLoadout === l.id;
     const isCursor = G.loadoutCursor === i;
+    const isHover = G._loadoutHoverIndex === i;
+    const focused = isCursor || isHover;
+    const isHc = l.id === 'hardcore';
+    const accent = isHc ? '#ff5e66' : (selected ? '#00ffff' : '#7fb8ff');
+    const baseFill = unlocked
+      ? (focused ? 'rgba(24, 30, 46, 0.94)' : 'rgba(14, 18, 32, 0.88)')
+      : (focused ? 'rgba(42, 26, 34, 0.92)' : 'rgba(20, 22, 34, 0.90)');
 
-    if (isCursor) {
+    G._loadoutCardRects = G._loadoutCardRects || [];
+    G._loadoutCardRects[i] = { x, y, w: cardW, h: cardH };
+
+    ctx.save();
+    if (focused) {
+      ctx.shadowColor = accent;
+      ctx.shadowBlur = selected ? 16 : 12;
+    }
+    ctx.fillStyle = baseFill;
+    ctx.beginPath();
+    ctx.roundRect(x, y, cardW, cardH, 14);
+    ctx.fill();
+    ctx.shadowBlur = 0;
+    ctx.strokeStyle = selected ? accent : (focused ? 'rgba(180,220,255,0.45)' : 'rgba(120,150,190,0.18)');
+    ctx.lineWidth = selected || focused ? 2 : 1;
+    ctx.stroke();
+
+    ctx.fillStyle = unlocked ? accent : '#4e5360';
+    ctx.beginPath();
+    ctx.roundRect(x + 6, y + 6, 5, cardH - 12, 3);
+    ctx.fill();
+
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+    ctx.font = 'bold ' + (l.name.length > 10 ? 22 : 24) + 'px ' + FONT;
+    ctx.fillStyle = unlocked ? (isHc ? '#ffd1d4' : '#ffffff') : '#a9b4c7';
+    ctx.fillText(l.name, x + 18, y + 28);
+
+    const statY = y + 52;
+    const stats = [
+      { label: 'HP', value: String(l.hp) },
+      { label: 'Stamina', value: String(l.stamina) },
+      { label: 'Score', value: 'x' + l.scoreMod },
+    ];
+    const pillW = 58;
+    for (let s = 0; s < stats.length; s++) {
+      const px = x + 16 + s * (pillW + 8);
       ctx.fillStyle = 'rgba(255,255,255,0.05)';
       ctx.beginPath();
-      ctx.roundRect(100, y - 20, W - 200, 80, 6);
+      ctx.roundRect(px, statY, pillW, 32, 8);
       ctx.fill();
-      ctx.strokeStyle = selected ? 'rgba(0,255,255,0.2)' : 'rgba(255,255,255,0.1)';
-      ctx.lineWidth = 1;
-      ctx.beginPath();
-      ctx.roundRect(100, y - 20, W - 200, 80, 6);
-      ctx.stroke();
-    }
-
-    const isHc = l.id === 'hardcore';
-    const hcColor = '#cc2222';
-
-    ctx.font = 'bold 20px ' + FONT;
-    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    if (isHc) {
-      ctx.fillStyle = unlocked ? (selected ? hcColor : '#cc4444') : '#444444';
-    } else {
-      ctx.fillStyle = unlocked ? (selected ? '#00ffff' : '#ffffff') : '#444444';
-    }
-    ctx.fillText(l.name + (selected ? ' ✓' : ''), W / 2, y);
-    if (isHc && unlocked) {
       ctx.font = '11px ' + FONT;
-      ctx.fillStyle = '#884444';
-      ctx.fillText('One life. Maximum glory.', W / 2, y + 14);
+      ctx.textAlign = 'left';
+      ctx.fillStyle = unlocked ? '#8aa0bb' : '#7f8ba0';
+      ctx.fillText(stats[s].label, px + 10, statY + 12);
+      ctx.font = 'bold 14px ' + FONT;
+      ctx.fillStyle = unlocked ? '#ffffff' : '#c7d0de';
+      ctx.fillText(stats[s].value, px + 10, statY + 24);
     }
-    y += 25;
 
-    ctx.font = '14px ' + FONT;
-    ctx.fillStyle = unlocked ? '#aaaaaa' : '#444444';
-    ctx.fillText('HP: ' + l.hp + ' · Stamina: ' + l.stamina + ' · Score: x' + l.scoreMod, W / 2, y);
-    y += 20;
-
+    ctx.textAlign = 'left';
+    ctx.font = 'bold 12px ' + FONT;
+    ctx.fillStyle = unlocked ? '#9cb3ce' : '#b5c1d2';
+    ctx.fillText('Start', x + 18, y + 100);
+    ctx.font = '13px ' + FONT;
     if (l.powers.length > 0) {
-      ctx.fillText('Starts with: ' + l.powers.join(', '), W / 2, y);
+      ctx.fillStyle = unlocked ? '#dfe8ff' : '#a5afbe';
+      const startText = l.powers.join(', ');
+      const maxW = cardW - 34;
+      let clipped = startText;
+      while (ctx.measureText(clipped).width > maxW && clipped.length > 0) clipped = clipped.slice(0, -1);
+      ctx.fillText(clipped !== startText ? clipped.trimEnd() + '…' : clipped, x + 18, y + 120);
     } else {
-      ctx.fillText(isHc && unlocked ? 'No healing · No Second Wind · 2 card picks' : 'No starting powers', W / 2, y);
+      ctx.fillStyle = unlocked ? '#c3ccd8' : '#a5afbe';
+      ctx.fillText(isHc ? 'One life, no safety nets' : 'No starting powers', x + 18, y + 120);
     }
-    y += 20;
 
+    ctx.strokeStyle = 'rgba(255,255,255,0.06)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(x + 16, y + 132);
+    ctx.lineTo(x + cardW - 16, y + 132);
+    ctx.stroke();
+
+    ctx.font = '12px ' + FONT;
+    ctx.textAlign = 'left';
     if (!unlocked) {
-      ctx.fillStyle = '#666666';
+      let lockText = '';
+      let lockColor = '#7d8594';
       if (isHc) {
         if (G.meta.bestWave < (l.unlockWave || 15)) {
-          ctx.fillText('Reach Wave ' + (l.unlockWave || 15) + ' to unlock', W / 2, y);
+          lockText = 'Reach Wave ' + (l.unlockWave || 15) + ' to unlock';
         } else {
-          ctx.fillStyle = canPurchaseHardcore(G.meta) ? '#ffdd44' : '#666666';
-          ctx.fillText(l.unlockCost + ' shards to unlock', W / 2, y);
+          lockText = canPurchaseHardcore(G.meta)
+            ? 'Press Enter or click to unlock for ' + l.unlockCost + ' shards'
+            : 'Need ' + l.unlockCost + ' shards to unlock';
+          lockColor = canPurchaseHardcore(G.meta) ? '#ffdd66' : '#7d8594';
         }
       } else {
-        ctx.fillText('Requires ' + l.unlockCost + ' total shards earned', W / 2, y);
+        lockText = 'Requires ' + l.unlockCost + ' total shards earned';
       }
+      ctx.fillStyle = lockColor;
+      ctx.fillText(lockText, x + 18, y + 146);
+    } else {
+      ctx.fillStyle = selected ? '#8ef7ff' : '#7f93b1';
+      ctx.fillText(selected ? 'Current active loadout' : 'Press Enter or click to equip', x + 18, y + 146);
     }
-    y += 40;
+
+    ctx.restore();
   }
+
+  const previewX = 504;
+  const previewY = 122;
+  const previewW = 260;
+  const previewH = 336;
+  const previewUnlocked = isLoadoutUnlocked(G.meta, previewLoadout.id);
+  const previewSelected = G.meta.selectedLoadout === previewLoadout.id;
+
+  ctx.save();
+  ctx.fillStyle = 'rgba(10, 14, 24, 0.82)';
+  ctx.beginPath();
+  ctx.roundRect(previewX, previewY, previewW, previewH, 16);
+  ctx.fill();
+  ctx.strokeStyle = previewTheme.accentSoft;
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+
+  ctx.font = 'bold 22px ' + FONT;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillStyle = previewUnlocked ? '#ffffff' : (previewLoadout.id === 'hardcore' ? '#f3c5cb' : '#c9d2df');
+  ctx.fillText(previewLoadout.name, previewX + previewW / 2, previewY + 28);
+  ctx.font = '13px ' + FONT;
+  ctx.fillStyle = previewTheme.accent;
+  ctx.fillText(previewTheme.title, previewX + previewW / 2, previewY + 52);
+
+  if (previewSelected || !previewUnlocked) {
+    const statusLabel = previewSelected
+      ? 'Equipped'
+      : (previewLoadout.id === 'hardcore'
+        ? (canPurchaseHardcore(G.meta) ? 'Ready to unlock' : 'Locked')
+        : 'Locked');
+    ctx.fillStyle = previewLoadout.id === 'hardcore'
+      ? 'rgba(120, 54, 68, 0.78)'
+      : 'rgba(34, 46, 72, 0.82)';
+    ctx.beginPath();
+    ctx.roundRect(previewX + previewW / 2 - 58, previewY + 64, 116, 24, 12);
+    ctx.fill();
+    ctx.strokeStyle = previewTheme.accentSoft;
+    ctx.lineWidth = 1;
+    ctx.stroke();
+    ctx.font = 'bold 11px ' + FONT;
+    ctx.fillStyle = previewSelected ? '#bffcff' : (previewLoadout.id === 'hardcore' && canPurchaseHardcore(G.meta) ? '#ffdd66' : '#a3acba');
+    ctx.fillText(statusLabel, previewX + previewW / 2, previewY + 76);
+  }
+
+  const orbX = previewX + previewW / 2;
+  const orbY = previewY + 150;
+  ctx.strokeStyle = previewTheme.accentSoft;
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.arc(orbX, orbY, 44, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.globalAlpha = 0.35;
+  ctx.fillStyle = previewTheme.accentSoft;
+  ctx.beginPath();
+  ctx.arc(orbX, orbY, 40, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.globalAlpha = 1;
+  ctx.shadowColor = previewTheme.glow;
+  ctx.shadowBlur = 20;
+  ctx.fillStyle = previewTheme.core;
+  ctx.beginPath();
+  ctx.arc(orbX, orbY, 22, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.shadowBlur = 0;
+  ctx.fillStyle = '#0a0a0f';
+  ctx.beginPath(); ctx.arc(orbX - 6, orbY - 3, 3, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.arc(orbX + 6, orbY - 3, 3, 0, Math.PI * 2); ctx.fill();
+
+  for (let i = 0; i < previewLoadout.hp; i++) {
+    const angle = -Math.PI / 2 + (Math.PI * 2 * i / Math.max(previewLoadout.hp, 3));
+    const hx = orbX + Math.cos(angle) * 58;
+    const hy = orbY + Math.sin(angle) * 58;
+    ctx.fillStyle = previewTheme.accent;
+    ctx.globalAlpha = 0.85;
+    ctx.beginPath();
+    ctx.arc(hx, hy, 5, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+
+  ctx.font = '12px ' + FONT;
+  ctx.textAlign = 'center';
+  ctx.fillStyle = '#b7c4d8';
+  ctx.fillText(previewTheme.desc[0], previewX + previewW / 2, previewY + 214);
+  ctx.fillText(previewTheme.desc[1], previewX + previewW / 2, previewY + 230);
+
+  const badgeY = previewY + 246;
+  const badges = [
+    { label: 'HP', value: String(previewLoadout.hp) },
+    { label: 'STA', value: String(previewLoadout.stamina) },
+    { label: 'SCORE', value: 'x' + previewLoadout.scoreMod },
+  ];
+  for (let i = 0; i < badges.length; i++) {
+    const bx = previewX + 18 + i * 76;
+    ctx.fillStyle = 'rgba(255,255,255,0.05)';
+    ctx.beginPath();
+    ctx.roundRect(bx, badgeY, 68, 34, 9);
+    ctx.fill();
+    ctx.textAlign = 'center';
+    ctx.font = '10px ' + FONT;
+    ctx.fillStyle = '#8ca0bc';
+    ctx.fillText(badges[i].label, bx + 34, badgeY + 11);
+    ctx.font = 'bold 13px ' + FONT;
+    ctx.fillStyle = '#ffffff';
+    ctx.fillText(badges[i].value, bx + 34, badgeY + 24);
+  }
+
+  ctx.textAlign = 'left';
+  ctx.font = 'bold 12px ' + FONT;
+  ctx.fillStyle = '#9cb3ce';
+  ctx.fillText('Starting kit', previewX + 18, previewY + 292);
+
+  const previewDefs = previewLoadout.powers
+    .map(name => Object.values(POWER_DEFS).find(def => name.startsWith(def.name)))
+    .filter(Boolean);
+  if (previewDefs.length > 0) {
+    for (let i = 0; i < previewDefs.length; i++) {
+      const def = previewDefs[i];
+      const chipW = previewDefs.length > 1 ? 108 : 220;
+      const px = previewX + 18 + i * (chipW + 8);
+      const py = previewY + 304;
+      ctx.fillStyle = 'rgba(255,255,255,0.05)';
+      ctx.beginPath();
+      ctx.roundRect(px, py, chipW, 28, 10);
+      ctx.fill();
+      drawPowerIcon(def.icon, def.shape, px + 16, py + 14, 9);
+      ctx.font = '11px ' + FONT;
+      ctx.textAlign = 'left';
+      ctx.fillStyle = '#d8e2f0';
+      ctx.fillText(def.name, px + 32, py + 14);
+    }
+  } else {
+    ctx.font = '11px ' + FONT;
+    ctx.textAlign = 'left';
+    ctx.fillStyle = '#7f93b1';
+    ctx.fillText(previewLoadout.id === 'hardcore' ? 'No powers, no revives, fewer picks.' : 'Starts clean with no power advantage.', previewX + 18, previewY + 304);
+  }
+
+  if (!previewUnlocked) {
+    ctx.font = '11px ' + FONT;
+    ctx.textAlign = 'center';
+    ctx.fillStyle = previewLoadout.id === 'hardcore' && canPurchaseHardcore(G.meta) ? '#ffdd66' : '#9aa5b4';
+    ctx.fillText(previewLoadout.id === 'hardcore'
+      ? (canPurchaseHardcore(G.meta) ? 'Click or press Enter to unlock' : 'Locked progression challenge')
+      : 'Unlock through meta progression', previewX + previewW / 2, previewY + previewH - 14);
+  }
+
+  ctx.restore();
 
   ctx.font = '14px ' + FONT;
   ctx.textAlign = 'center';
-  ctx.fillStyle = '#555555';
-  ctx.fillText('↑↓ Navigate · Enter/Space to select · ESC to return', W / 2, H - 30);
+  ctx.fillStyle = '#6c7992';
+  ctx.fillText('Click a loadout or use WASD/Arrow keys · Enter selects · Esc returns', W / 2, H - 24);
 
   ctx.restore();
 }
@@ -1951,7 +4475,10 @@ function drawProximityRing() {
 // --- Main Draw ---
 function draw() {
   if (G.state === STATE.TITLE) { drawTitleScreen(); return; }
+  if (G.state === STATE.STORY_INTRO) { drawStoryIntroScreen(); return; }
   if (G.state === STATE.MODE_SELECT) { drawModeSelectScreen(); return; }
+  if (G.state === STATE.RELAY_CHAMBER) { drawRelayChamber(); return; }
+  if (G.state === STATE.TRANSITION_ROOM) { drawTransitionRoom(); return; }
   if (G.state === STATE.UPGRADES) { drawUpgradeScreen(); return; }
   if (G.state === STATE.LOADOUT) { drawLoadoutScreen(); return; }
   if (G.state === STATE.RUN_SUMMARY) { drawRunSummary(); return; }
@@ -2466,64 +4993,43 @@ function draw() {
 
     // --- Pause menu buttons ---
     const btnY = gridY + Math.ceil(visibleSlots / 2) * (cardH + gapY) + 20;
-    const btnW = 200, btnH = 40, btnGap = 16;
-    const totalBtnW = btnW * 2 + btnGap;
-    const btnX = (W - totalBtnW) / 2;
-
-    // Resume button
-    const resumeBtnX = btnX, resumeBtnY = btnY;
-    const resumeHover = !!G._pauseHoverResume;
-    ctx.save();
-    if (resumeHover) {
-      ctx.shadowColor = '#00ffaa';
-      ctx.shadowBlur = 14;
+    const btnW = 184, btnH = 40, btnGap = 12;
+    const rowX = W / 2 - (btnW * 2 + btnGap) / 2;
+    const pauseButtons = [
+      { id: 'resume', label: 'Resume', key: 'P', x: rowX, y: btnY, accent: '#00ffaa' },
+      { id: 'settings', label: 'Settings', key: 'S', x: rowX + btnW + btnGap, y: btnY, accent: '#9ab4ff' },
+      { id: 'glossary', label: 'Codex', key: 'G', x: rowX, y: btnY + btnH + 10, accent: '#c98cff' },
+      { id: 'quit', label: 'Quit Run', key: 'Q', x: rowX + btnW + btnGap, y: btnY + btnH + 10, accent: '#ff6688', danger: true },
+    ];
+    for (const btn of pauseButtons) {
+      const rect = { x: btn.x, y: btn.y, w: btnW, h: btnH };
+      G['_pause' + btn.id.charAt(0).toUpperCase() + btn.id.slice(1) + 'BtnRect'] = rect;
+      drawMenuButton(rect, btn.label, {
+        hovered: G._pauseHoverAction === btn.id,
+        accent: btn.accent,
+        sublabel: 'Hotkey ' + btn.key,
+        danger: !!btn.danger,
+      });
     }
-    ctx.fillStyle = resumeHover ? '#1f4f35' : '#1a3a2a';
-    ctx.beginPath();
-    ctx.roundRect(resumeBtnX, resumeBtnY, btnW, btnH, 6);
-    ctx.fill();
-    ctx.strokeStyle = resumeHover ? '#44ffcc' : '#00ffaa';
-    ctx.lineWidth = resumeHover ? 3 : 2;
-    ctx.stroke();
-    ctx.shadowBlur = 0;
-    ctx.font = 'bold 16px ' + FONT;
-    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.fillStyle = resumeHover ? '#44ffcc' : '#00ffaa';
-    ctx.fillText('Resume (P)', resumeBtnX + btnW / 2, resumeBtnY + btnH / 2);
-    ctx.restore();
 
-    // Quit Run button
-    const quitBtnX = btnX + btnW + btnGap, quitBtnY = btnY;
-    const quitHover = !!G._pauseHoverQuit;
+    const helpY = btnY + (btnH + 10) * 2 + 12;
     ctx.save();
-    if (quitHover) {
-      ctx.shadowColor = '#ff4466';
-      ctx.shadowBlur = 14;
-    }
-    ctx.fillStyle = quitHover ? '#4f1f1f' : '#3a1a1a';
+    ctx.fillStyle = 'rgba(10, 14, 24, 0.78)';
     ctx.beginPath();
-    ctx.roundRect(quitBtnX, quitBtnY, btnW, btnH, 6);
+    ctx.roundRect(W / 2 - 210, helpY, 420, 64, 10);
     ctx.fill();
-    ctx.strokeStyle = quitHover ? '#ff6688' : '#ff4466';
-    ctx.lineWidth = quitHover ? 3 : 2;
+    ctx.strokeStyle = 'rgba(110, 150, 200, 0.18)';
+    ctx.lineWidth = 1;
     ctx.stroke();
-    ctx.shadowBlur = 0;
-    ctx.font = 'bold 16px ' + FONT;
-    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.fillStyle = quitHover ? '#ff6688' : '#ff4466';
-    ctx.fillText('Quit Run (Q)', quitBtnX + btnW / 2, quitBtnY + btnH / 2);
-    ctx.restore();
-
-    // Store button bounds for click detection
-    G._pauseResumeBtnRect = { x: resumeBtnX, y: resumeBtnY, w: btnW, h: btnH };
-    G._pauseQuitBtnRect = { x: quitBtnX, y: quitBtnY, w: btnW, h: btnH };
-
-    // Bottom hints
-    ctx.save();
-    ctx.font = '14px ' + FONT;
-    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.fillStyle = '#555555';
-    ctx.fillText('S — Settings · G — Glossary', W / 2, btnY + btnH + 16);
+    ctx.font = 'bold 13px ' + FONT;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+    ctx.fillStyle = '#d6e4ff';
+    ctx.fillText('Controls', W / 2, helpY + 10);
+    ctx.font = '12px ' + FONT;
+    ctx.fillStyle = '#7e93b6';
+    ctx.fillText('WASD move  •  Mouse aim  •  Space dash/bounce', W / 2, helpY + 30);
+    ctx.fillText('P pause  •  S settings  •  G codex  •  Q save and quit', W / 2, helpY + 46);
     ctx.restore();
 
     ctx.restore();
@@ -2531,33 +5037,119 @@ function draw() {
 
   // 21. Tutorial overlay (outside shake)
   if (G.state === STATE.TUTORIAL) {
-    ctx.save();
-    ctx.globalAlpha = 0.8;
-    ctx.fillStyle = '#000000';
-    ctx.fillRect(0, 0, W, H);
-    ctx.globalAlpha = 1;
-    drawGlowText('HOW TO PLAY', W / 2, H * 0.3, 'bold 36px ' + FONT, '#00ffff', '#00ffff', 12);
-    ctx.save();
-    ctx.font = '18px ' + FONT;
-    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.fillStyle = '#cccccc';
     const isTouchDev = 'ontouchstart' in window;
-    ctx.fillText(isTouchDev
-      ? 'Joystick to move · Tap right side to DASH · Aim with joystick!'
-      : 'WASD to move · Space to DASH · Aim with your mouse!', W / 2, H * 0.3 + 50);
-    ctx.fillText('Moving fast = KILL enemies', W / 2, H * 0.3 + 80);
-    ctx.fillStyle = '#ff6666';
-    ctx.fillText('Standing still = enemies HURT you', W / 2, H * 0.3 + 110);
-    ctx.fillStyle = '#ffdd44';
-    ctx.fillText('Pick powers between waves to get stronger!', W / 2, H * 0.3 + 140);
+    const panelX = 110;
+    const panelY = 142;
+    const panelW = 580;
+    const panelH = 246;
+    const cardW = 170;
+    const cardH = 84;
+    const cardGap = 16;
+    const cardsY = panelY + 96;
+    const firstCardX = W / 2 - (cardW * 3 + cardGap * 2) / 2;
+
+    ctx.save();
+    const shadowGrad = ctx.createRadialGradient(W / 2, panelY + panelH * 0.55, 120, W / 2, panelY + panelH * 0.55, 360);
+    shadowGrad.addColorStop(0, 'rgba(0, 0, 0, 0)');
+    shadowGrad.addColorStop(1, 'rgba(4, 8, 18, 0.22)');
+    ctx.fillStyle = shadowGrad;
+    ctx.fillRect(0, 0, W, H);
+
+    ctx.fillStyle = 'rgba(8, 14, 28, 0.76)';
+    ctx.beginPath();
+    ctx.roundRect(panelX, panelY, panelW, panelH, 22);
+    ctx.fill();
+
+    const panelStroke = ctx.createLinearGradient(panelX, panelY, panelX + panelW, panelY + panelH);
+    panelStroke.addColorStop(0, 'rgba(120, 235, 255, 0.72)');
+    panelStroke.addColorStop(0.5, 'rgba(108, 138, 255, 0.34)');
+    panelStroke.addColorStop(1, 'rgba(255, 210, 120, 0.30)');
+    ctx.strokeStyle = panelStroke;
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
+    ctx.globalAlpha = 0.10;
+    ctx.drawImage(gridCanvas, panelX, panelY, panelW, panelH, panelX, panelY, panelW, panelH);
+    ctx.globalAlpha = 1;
+
+    drawGlowText('HOW TO PLAY', W / 2, panelY + 40, 'bold 32px ' + FONT, '#78f3ff', '#78f3ff', 16);
+    ctx.font = '15px ' + FONT;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = '#b9c8de';
+    ctx.fillText('Stay in motion, break through pressure, build power between waves.', W / 2, panelY + 68);
+
+    const cards = [
+      {
+        title: 'MOVE',
+        accent: '#78f3ff',
+        lines: [
+          isTouchDev ? 'Left side joystick' : 'WASD to drift',
+          'Keep your route alive',
+        ],
+      },
+      {
+        title: 'BREAK THROUGH',
+        accent: '#ffd966',
+        lines: isTouchDev
+          ? ['Hold right side', 'Release to dash-kill']
+          : ['Hold Space', 'Release to dash-kill'],
+      },
+      {
+        title: 'DANGER',
+        accent: '#ff7b8e',
+        lines: [
+          'Slow contact hurts you',
+          'Pick powers between waves',
+        ],
+      },
+    ];
+
+    for (let i = 0; i < cards.length; i++) {
+      const card = cards[i];
+      const cx = firstCardX + i * (cardW + cardGap);
+      ctx.save();
+      ctx.fillStyle = 'rgba(14, 20, 36, 0.92)';
+      ctx.beginPath();
+      ctx.roundRect(cx, cardsY, cardW, cardH, 16);
+      ctx.fill();
+      ctx.strokeStyle = card.accent;
+      ctx.globalAlpha = 0.42;
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+      ctx.globalAlpha = 1;
+
+      ctx.fillStyle = card.accent;
+      ctx.fillRect(cx + 16, cardsY + 14, 28, 4);
+      ctx.font = 'bold 14px ' + FONT;
+      ctx.textAlign = 'left';
+      ctx.fillText(card.title, cx + 16, cardsY + 34);
+
+      ctx.font = '12px ' + FONT;
+      ctx.fillStyle = '#eef5ff';
+      ctx.fillText(card.lines[0], cx + 16, cardsY + 54);
+      ctx.fillStyle = '#a7b8d3';
+      ctx.fillText(card.lines[1], cx + 16, cardsY + 70);
+      ctx.restore();
+    }
+
+    ctx.save();
+    ctx.fillStyle = 'rgba(9, 18, 34, 0.92)';
+    ctx.beginPath();
+    ctx.roundRect(panelX + 88, panelY + panelH - 42, panelW - 176, 30, 14);
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(120, 243, 255, 0.34)';
+    ctx.lineWidth = 1.25;
+    ctx.stroke();
     ctx.restore();
+
     const tutPulse = 0.5 + 0.5 * Math.sin(Date.now() / 500 * Math.PI);
     ctx.save();
     ctx.globalAlpha = tutPulse;
-    ctx.font = '16px ' + FONT;
+    ctx.font = 'bold 14px ' + FONT;
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.fillStyle = '#888888';
-    ctx.fillText('Click or press any key to start', W / 2, H * 0.3 + 190);
+    ctx.fillStyle = '#9fdfff';
+    ctx.fillText('Click or press any key to start', W / 2, panelY + panelH - 27);
     ctx.restore();
     ctx.restore();
   }
@@ -2624,11 +5216,14 @@ export function transitionToRunSummary() {
     total: totalShards,
     hasShardMagnet: G.meta.unlocks.includes(7),
     isVictory: G.isVictory || false,
-    endlessUnlocked: G.meta.endlessUnlocked || false,
+    endlessUnlocked: G.runUnlockedEndlessThisRun || false,
     isHardcore: G.isHardcore,
+    isEndlessRun: !!G.isEndlessRun,
+    mode: G.isEndlessRun ? 'endless' : 'story',
     hardcoreMultiplied,
     hardcoreMilestoneBonus,
     hardcoreFirstClearBonus,
+    telemetry: G.runTelemetry,
   };
 
   // Apply shards to meta
@@ -2641,6 +5236,18 @@ export function transitionToRunSummary() {
   } else {
     if (G.wave > G.meta.bestWave) G.meta.bestWave = G.wave;
   }
+  recordRunAnalytics(G.meta, {
+    loadout: G.meta.selectedLoadout || 'standard',
+    isEndlessRun: !!G.isEndlessRun,
+    isVictory: !!(G.isVictory || false),
+    wave: G.wave,
+    score: G.score,
+    kills: G.runKills,
+    damageTaken: G.runTelemetry?.damageTaken || 0,
+    revivesUsed: G.runTelemetry?.revivesUsed || 0,
+    killSources: G.runTelemetry?.killSources || {},
+    powersHeld: powersHeld.map(p => p.id),
+  });
   saveMeta(G.meta);
 
   G.state = STATE.RUN_SUMMARY;
@@ -2706,8 +5313,7 @@ G.state = STATE.TITLE;
 
 // Start title music on very first user gesture (browsers require gesture for AudioContext)
 function _onFirstGesture() {
-  resumeAudio();
-  startMusic();
+  ensureTitleMusicStarted();
   document.removeEventListener('pointerdown', _onFirstGesture);
   document.removeEventListener('keydown', _onFirstGesture);
 }

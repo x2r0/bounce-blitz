@@ -2,6 +2,53 @@
 
 const META_KEY = 'bounceblitz_meta';
 
+const ANALYTICS_LOADOUT_IDS = ['standard', 'glass_cannon', 'tank', 'hardcore'];
+
+function createDefaultLoadoutAnalytics() {
+  return {
+    runs: 0,
+    wins: 0,
+    deaths: 0,
+    storyRuns: 0,
+    endlessRuns: 0,
+    totalWave: 0,
+    totalScore: 0,
+    totalKills: 0,
+    totalDamageTaken: 0,
+    totalRevivesUsed: 0,
+    bestWave: 0,
+    bestScore: 0,
+  };
+}
+
+function createDefaultAnalytics() {
+  const loadouts = {};
+  for (const id of ANALYTICS_LOADOUT_IDS) loadouts[id] = createDefaultLoadoutAnalytics();
+  return {
+    storyRuns: 0,
+    endlessRuns: 0,
+    storyVictories: 0,
+    endlessDeaths: 0,
+    totalDamageTaken: 0,
+    totalRevivesUsed: 0,
+    totalStoryIntroSkips: 0,
+    loadouts,
+    recentRuns: [],
+  };
+}
+
+function normalizeAnalytics(analytics) {
+  const merged = { ...createDefaultAnalytics(), ...(analytics || {}) };
+  const loadouts = {};
+  const incomingLoadouts = analytics?.loadouts || {};
+  for (const id of ANALYTICS_LOADOUT_IDS) {
+    loadouts[id] = { ...createDefaultLoadoutAnalytics(), ...(incomingLoadouts[id] || {}) };
+  }
+  merged.loadouts = loadouts;
+  merged.recentRuns = Array.isArray(merged.recentRuns) ? merged.recentRuns.slice(-20) : [];
+  return merged;
+}
+
 const DEFAULT_META = {
   shards: 0,
   totalShardsEarned: 0,
@@ -16,6 +63,7 @@ const DEFAULT_META = {
   hardcoreHighScore: 0,
   hardcoreFirstClear: false,
   glossaryUnlocked: [],
+  analytics: createDefaultAnalytics(),
 };
 
 export function loadMeta() {
@@ -23,14 +71,66 @@ export function loadMeta() {
     const raw = localStorage.getItem(META_KEY);
     if (raw) {
       const parsed = JSON.parse(raw);
-      return { ...DEFAULT_META, ...parsed };
+      return { ...DEFAULT_META, ...parsed, analytics: normalizeAnalytics(parsed.analytics) };
     }
   } catch (e) { /* ignore */ }
-  return { ...DEFAULT_META };
+  return { ...DEFAULT_META, analytics: createDefaultAnalytics() };
 }
 
 export function saveMeta(meta) {
+  meta.analytics = normalizeAnalytics(meta.analytics);
   localStorage.setItem(META_KEY, JSON.stringify(meta));
+}
+
+export function recordRunAnalytics(meta, run) {
+  const analytics = normalizeAnalytics(meta.analytics);
+  const loadoutId = ANALYTICS_LOADOUT_IDS.includes(run.loadout) ? run.loadout : 'standard';
+  const bucket = analytics.loadouts[loadoutId];
+
+  if (run.isEndlessRun) analytics.endlessRuns++;
+  else analytics.storyRuns++;
+  if (run.isVictory && !run.isEndlessRun) analytics.storyVictories++;
+  if (!run.isVictory && run.isEndlessRun) analytics.endlessDeaths++;
+
+  analytics.totalDamageTaken += run.damageTaken || 0;
+  analytics.totalRevivesUsed += run.revivesUsed || 0;
+
+  bucket.runs++;
+  if (run.isVictory) bucket.wins++;
+  else bucket.deaths++;
+  if (run.isEndlessRun) bucket.endlessRuns++;
+  else bucket.storyRuns++;
+  bucket.totalWave += run.wave || 0;
+  bucket.totalScore += run.score || 0;
+  bucket.totalKills += run.kills || 0;
+  bucket.totalDamageTaken += run.damageTaken || 0;
+  bucket.totalRevivesUsed += run.revivesUsed || 0;
+  bucket.bestWave = Math.max(bucket.bestWave || 0, run.wave || 0);
+  bucket.bestScore = Math.max(bucket.bestScore || 0, run.score || 0);
+
+  analytics.recentRuns.push({
+    ts: Date.now(),
+    loadout: loadoutId,
+    endless: !!run.isEndlessRun,
+    victory: !!run.isVictory,
+    wave: run.wave || 0,
+    score: run.score || 0,
+    kills: run.kills || 0,
+    damageTaken: run.damageTaken || 0,
+    revivesUsed: run.revivesUsed || 0,
+    killSources: { ...(run.killSources || {}) },
+    powersHeld: Array.isArray(run.powersHeld) ? run.powersHeld.slice(0, 6) : [],
+  });
+  analytics.recentRuns = analytics.recentRuns.slice(-20);
+  meta.analytics = analytics;
+  return analytics;
+}
+
+export function recordStoryIntroSkip(meta) {
+  const analytics = normalizeAnalytics(meta.analytics);
+  analytics.totalStoryIntroSkips++;
+  meta.analytics = analytics;
+  return analytics;
 }
 
 // --- Upgrade Tree ---
@@ -94,8 +194,8 @@ export function purchaseUpgrade(meta, upgradeId) {
 // --- Loadouts ---
 export const LOADOUTS = [
   { id: 'standard', name: 'Standard', hp: 3, stamina: 100, powers: [], scoreMod: 1.0, unlockCost: 0 },
-  { id: 'glass_cannon', name: 'Glass Cannon', hp: 2, stamina: 130, powers: ['Surge L1'], scoreMod: 1.3, unlockCost: 600 },
-  { id: 'tank', name: 'Tank', hp: 5, stamina: 80, powers: ['Shield L1', 'Shell Guard L1'], scoreMod: 0.8, unlockCost: 1500 },
+  { id: 'glass_cannon', name: 'Glass Cannon', hp: 2, stamina: 120, powers: ['Dash Burst L1'], scoreMod: 1.15, unlockCost: 600 },
+  { id: 'tank', name: 'Tank', hp: 4, stamina: 85, powers: ['Shield L1'], scoreMod: 0.9, unlockCost: 1500 },
   { id: 'hardcore', name: 'HARDCORE', hp: 1, stamina: 100, powers: [], scoreMod: 2.0, unlockCost: 250, unlockWave: 15 },
 ];
 
