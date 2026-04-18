@@ -54,6 +54,7 @@ export function getCardAtPosition(x, y) {
 export function drawPowerSelectScreen() {
   const offering = G.cardOffering;
   if (!offering || offering.length === 0) return;
+  const config = G.powerSelectConfig || {};
 
   // Dim background
   ctx.save();
@@ -63,7 +64,7 @@ export function drawPowerSelectScreen() {
   ctx.globalAlpha = 1;
 
   // Title
-  drawGlowText('CHOOSE A POWER', W / 2, 160, 'bold 32px ' + FONT, '#ffffff', '#00ffff', 10);
+  drawGlowText(config.title || 'CHOOSE A POWER', W / 2, 160, 'bold 32px ' + FONT, '#ffffff', '#00ffff', 10);
 
   // Pick animation
   const pickAnim = G.cardPickAnim;
@@ -131,11 +132,19 @@ export function drawPowerSelectScreen() {
   // Input hints
   if (!pickAnim) {
     ctx.save();
+    if (config.hint) {
+      ctx.font = '12px ' + FONT;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillStyle = '#8ca4c2';
+      ctx.fillText(config.hint, W / 2, ROW_Y + CARD_H + 14);
+    }
     ctx.font = '14px ' + FONT;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillStyle = '#666666';
-    ctx.fillText('Press 1/2/3 or click to choose' + (hasEvolution ? ' · 4 for evolution' : ''), W / 2, ROW_Y + CARD_H + 30);
+    const keys = offering.map((_, index) => String(index + 1)).join('/');
+    ctx.fillText('Press ' + keys + ' or click to choose', W / 2, ROW_Y + CARD_H + 32);
     ctx.restore();
   }
 
@@ -203,10 +212,18 @@ function drawCard(card, x, y, w, h, isHovered, index) {
     ctx.fillText('★ EVOLUTION ★', drawX + w / 2, drawY + 108);
   }
 
+  const hasRewardTags = G.meta.unlocks.includes(4) && Array.isArray(card.rewardTags) && card.rewardTags.length > 0;
+  let descY = card.isUpgrade ? 140 : 118;
+  if (hasRewardTags) {
+    ctx.font = 'bold 9px ' + FONT;
+    ctx.fillStyle = rarityColor;
+    ctx.fillText(card.rewardTags.join(' · '), drawX + w / 2, drawY + descY - 12);
+    descY += 6;
+  }
+
   // Effect text (word-wrapped)
   ctx.font = '11px ' + FONT;
   ctx.fillStyle = '#aaaacc';
-  const descY = card.isUpgrade ? 140 : 118;
   wrapText(card.desc, drawX + 10, drawY + descY, w - 20, 14);
 
   // Rarity label
@@ -322,6 +339,14 @@ function drawEvolutionHintRow(powerId, cardX, cardY, cardW, cardH) {
     ctx.beginPath();
     ctx.arc(startX + 56, hintY, iconR + 3, 0, Math.PI * 2);
     ctx.stroke();
+    if (hasEvoSense) {
+      const readyCount = (thisLevel >= thisReq.minLevel ? 1 : 0) + (otherLevel >= otherReq.minLevel ? 1 : 0);
+      ctx.font = 'bold 9px ' + FONT;
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'middle';
+      ctx.fillStyle = bothReady ? '#ffdd44' : '#77839d';
+      ctx.fillText(readyCount + '/2', startX + 66, hintY);
+    }
     ctx.restore();
 
     break; // Only show first matching recipe per card

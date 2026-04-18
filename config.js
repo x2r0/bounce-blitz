@@ -47,8 +47,8 @@ export const CHARGE_POWER_SCALE_MIN = 0.70;       // power effect multiplier at 
 export const CHARGE_POWER_SCALE_MAX = 1.00;       // power effect multiplier at t=1
 export const CHARGE_TIMEWARP_SCALE_MIN = 0.60;    // time warp duration multiplier at t=0
 export const CHARGE_TIMEWARP_SCALE_MAX = 1.00;    // time warp duration multiplier at t=1
-export const CHARGE_THUNDER_TRAIL_MIN = 1.40;     // seconds at t=0
-export const CHARGE_THUNDER_TRAIL_MAX = 2.00;     // seconds at t=1
+export const CHARGE_THUNDER_TRAIL_MIN = 0.85;     // seconds at t=0
+export const CHARGE_THUNDER_TRAIL_MAX = 1.20;     // seconds at t=1
 export const CHARGE_OVERDRIVE_SPEED_MUL = 1.20;   // speed multiplier during Overdrive
 export const CHARGE_GLOW_COLOR_START = '#4488ff';  // blue
 export const CHARGE_GLOW_COLOR_END = '#ffcc00';    // gold

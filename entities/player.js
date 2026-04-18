@@ -229,19 +229,29 @@ export function damagePlayer(sourceX, sourceY) {
     // Reflective Shield evolution: emit kill shockwave on block
     const reflective = player.powers.find(p => p.id === 'reflectiveShield');
     if (reflective) {
-      G.shockwaves.push({ x: player.x, y: player.y, r: 0, maxR: 120, life: 0.3, maxLife: 0.3, thickness: 8, killsEnemies: true });
-      // Kill enemies in range (inline to avoid circular import)
-      for (let i = G.enemies.length - 1; i >= 0; i--) {
-        const e = G.enemies[i];
-        if (e.alive && dist(player, e) < 120) {
-          if (e.isBoss) continue; // Bosses must go through hitBoss/defeatBoss
-          e.alive = false;
-          G.combo++;
-          G.comboTimer = 1.5;
-          G.score += e.points * G.combo;
-          spawnParticles(e.x, e.y, e.color, 8);
-          events.emit('enemyKilled', { type: e.type, points: e.points * G.combo, combo: G.combo, x: e.x, y: e.y, source: 'reflectiveShield' });
-        }
+      const burstRadius = 95;
+      G.shockwaves.push({ x: player.x, y: player.y, r: 0, maxR: burstRadius, life: 0.26, maxLife: 0.26, thickness: 8, killsEnemies: true });
+      const candidates = G.enemies
+        .map((enemy, index) => ({ enemy, index, distance: dist(player, enemy) }))
+        .filter(({ enemy, distance }) => enemy.alive && !enemy.isBoss && distance < burstRadius)
+        .sort((a, b) => a.distance - b.distance)
+        .slice(0, 2);
+      for (const { enemy: e } of candidates) {
+        e.alive = false;
+        G.combo++;
+        G.comboTimer = 1.5;
+        G.score += e.points * G.combo;
+        spawnParticles(e.x, e.y, e.color, 8);
+        events.emit('enemyKilled', {
+          type: e.type,
+          points: e.points * G.combo,
+          combo: G.combo,
+          x: e.x,
+          y: e.y,
+          source: 'reflectiveShield',
+          isMinion: e.type === 'mini_splitter' || e.type === 'spawner_minion' || !!e.owner,
+          ownerBossType: e.owner?.bossType || null,
+        });
       }
     }
     return;

@@ -82,6 +82,14 @@ export function updateShockwaves(dt) {
   }
 }
 
+export function updateThunderTrails(dt) {
+  for (let i = G.thunderTrails.length - 1; i >= 0; i--) {
+    const trail = G.thunderTrails[i];
+    trail.life -= dt;
+    if (trail.life <= 0) G.thunderTrails.splice(i, 1);
+  }
+}
+
 export function updateAfterimages(dt) {
   for (let i = G.afterimages.length - 1; i >= 0; i--) {
     const a = G.afterimages[i];
@@ -221,6 +229,27 @@ export function drawMultiPopExplosions() {
     ctx.lineWidth = 2;
     ctx.beginPath();
     ctx.arc(e.x, e.y, e.r, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.restore();
+  }
+}
+
+export function drawThunderTrails() {
+  for (const trail of G.thunderTrails) {
+    const progress = 1 - (trail.life / trail.maxLife);
+    ctx.save();
+    ctx.globalAlpha = lerp(0.55, 0, progress);
+    ctx.shadowColor = '#88ccff';
+    ctx.shadowBlur = lerp(18, 0, progress);
+    ctx.fillStyle = 'rgba(136, 204, 255, 0.22)';
+    ctx.beginPath();
+    ctx.arc(trail.x, trail.y, trail.r, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.globalAlpha = lerp(0.9, 0, progress);
+    ctx.strokeStyle = '#d9f1ff';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(trail.x, trail.y, trail.r * (0.82 + 0.08 * Math.sin(Date.now() / 90)), 0, Math.PI * 2);
     ctx.stroke();
     ctx.restore();
   }

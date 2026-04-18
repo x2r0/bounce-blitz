@@ -1,4 +1,4 @@
-# Bounce Blitz
+# Bounce Blitz: Last Courier
 
 **[Play Now](https://x2r0.github.io/bounce-blitz/)**
 
@@ -16,6 +16,16 @@ python3 serve.py 3000   # or pick a custom port
 ```
 
 The game uses ES modules so a local server is required — opening `index.html` directly from the filesystem won't work.
+
+## Testing
+
+Run the lightweight regression suite with:
+
+```bash
+npm test
+```
+
+These tests live under [`tests/`](/Users/emanuelevineti/Docs/Code_Projects/browser_games/extrafungame/tests) and are only for local development / CI. They are not referenced by the runtime game modules and are not meant to ship as part of the playable build.
 
 You control a bouncing orb in a compact arena. Drift into position, then **dash** through enemies to destroy them. Chain kills together for combo multipliers and collect power-ups to grow stronger each wave.
 

@@ -49,6 +49,8 @@ export function saveRunState(G) {
       maxHp: p.maxHp,
       maxStamina: p.maxStamina,
       powers: p.powers.map(pw => ({ id: pw.id, level: pw.level })),
+      sigils: Array.isArray(p.sigils) ? [...p.sigils] : [],
+      sigilState: p.sigilState ? { ...p.sigilState } : { broodbreakerKillsLeft: 0, feedbackDashCount: 0 },
       scoreMod: p.scoreMod,
       dashCostReduction: p.dashCostReduction || 0,
       staminaRegenBonus: p.staminaRegenBonus || 0,

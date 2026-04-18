@@ -2,6 +2,14 @@
 
 import { G } from '../state.js';
 import { RARITY_COLORS, MAX_POWER_SLOTS } from '../config.js';
+import {
+  RARITY_ORDER,
+  getRewardContextForWave,
+  getAllowedRaritiesForContext,
+  getRewardTags,
+  getSlotBudgets,
+  getFallbackRarities,
+} from './reward-context.js';
 
 // --- Power Definitions ---
 // Each power: { id, name, rarity, maxLevel, description(level), levelValues }
@@ -130,28 +138,61 @@ export const POWER_DEFS = {
 export const EVOLUTION_RECIPES = [
   {
     id: 'reflectiveShield', name: 'Reflective Shield',
-    requires: [{ id: 'shield', minLevel: 2 }, { id: 'surge', minLevel: 2 }],
-    desc: 'Shield blocks emit 120px kill shockwave + permanent Surge L1 speeds',
+    requires: [{ id: 'shield', minLevel: 3 }, { id: 'surge', minLevel: 3 }],
+    desc: 'Keep Shield III and Surge III, plus shockwave blocks',
     icon: '#4488ff', shape: 'circle', borderColor: RARITY_COLORS.evolution,
   },
   {
     id: 'gravityBomb', name: 'Gravity Bomb',
-    requires: [{ id: 'magnet', minLevel: 2 }, { id: 'multipop', minLevel: 2 }],
-    desc: 'Kills create gravity wells that pull then detonate',
+    requires: [{ id: 'magnet', minLevel: 3 }, { id: 'multipop', minLevel: 3 }],
+    desc: 'Keep Magnet III and Multi-Pop III, plus gravity wells on kill',
     icon: '#8844aa', shape: 'burst', borderColor: RARITY_COLORS.evolution,
   },
   {
     id: 'thunderDash', name: 'Thunder Dash',
-    requires: [{ id: 'surge', minLevel: 2 }, { id: 'chainLightning', minLevel: 2 }],
+    requires: [{ id: 'surge', minLevel: 3 }, { id: 'chainLightning', minLevel: 3 }],
     desc: 'Dash leaves 2s lightning trail that kills on contact',
     icon: '#aaddff', shape: 'bolt', borderColor: RARITY_COLORS.evolution,
   },
   {
     id: 'novaCore', name: 'Nova Core',
-    requires: [{ id: 'shellGuard', minLevel: 2 }, { id: 'dashBurst', minLevel: 2 }],
-    desc: 'Dash detonates all orbs in 70px explosions',
+    requires: [{ id: 'shellGuard', minLevel: 3 }, { id: 'dashBurst', minLevel: 3 }],
+    desc: 'Keep Shell Guard III and Dash Burst III, plus orb detonations',
     icon: '#ff8844', shape: 'burst', borderColor: RARITY_COLORS.evolution,
   },
+];
+
+export const BOSS_SIGIL_DEFS = {
+  hive_queen: {
+    id: 'broodbreaker',
+    name: 'Broodbreaker Sigil',
+    routeLabel: 'Boss Sigil',
+    title: 'Broodbreaker Sigil',
+    accent: '#ffb26f',
+    summary: [
+      'The first 3 minion kills each wave refund stamina.',
+      'Those kills also burst nearby pressure apart.',
+    ],
+    chips: ['+12 STA', 'Minion Burst'],
+  },
+  nexus_core: {
+    id: 'feedback',
+    name: 'Feedback Sigil',
+    routeLabel: 'Boss Sigil',
+    title: 'Feedback Sigil',
+    accent: '#8dd8ff',
+    summary: [
+      'Every 5th dash fires a short chain zap.',
+      'Arc pressure into up to 2 nearby enemies.',
+    ],
+    chips: ['Every 5th Dash', 'Chain Zap'],
+  },
+};
+
+const START_COMMON_POWER_IDS = ['shield', 'magnet', 'dashBurst', 'shellGuard', 'staminaOverflow'];
+const START_ARSENAL_POWER_IDS = [
+  'shield', 'magnet', 'dashBurst', 'shellGuard', 'staminaOverflow',
+  'surge', 'multipop', 'chainLightning', 'timeWarp',
 ];
 
 // --- Offering Algorithm ---
@@ -164,6 +205,102 @@ export function getPlayerPowerLevel(powerId) {
   return p ? p.level : 0;
 }
 
+function buildPowerCard(def, rewardContext) {
+  const held = getPlayerPower(def.id);
+  const isUpgrade = held && held.level < def.maxLevel;
+  return {
+    powerId: def.id,
+    name: def.name,
+    rarity: def.rarity,
+    desc: def.desc(isUpgrade ? held.level + 1 : 1),
+    icon: def.icon,
+    shape: def.shape,
+    currentLevel: held ? held.level : 0,
+    nextLevel: held ? held.level + 1 : 1,
+    isUpgrade,
+    isEvolution: false,
+    rewardContext,
+    rewardTags: getRewardTags(def.rarity, rewardContext, isUpgrade),
+  };
+}
+
+function applyPreviousOfferingWeights(candidates, respectPreviousPenalty) {
+  if (!respectPreviousPenalty || G.previousOffering.length === 0) {
+    return candidates.map(c => ({ ...c, weight: 1 }));
+  }
+  return candidates.map(c => ({
+    ...c,
+    weight: G.previousOffering.includes(c.id) ? 0.5 : 1,
+  }));
+}
+
+function pickWeightedCandidate(candidates) {
+  const totalWeight = candidates.reduce((sum, c) => sum + c.weight, 0);
+  let r = Math.random() * totalWeight;
+  let picked = candidates[0];
+  for (const c of candidates) {
+    r -= c.weight;
+    if (r <= 0) {
+      picked = c;
+      break;
+    }
+  }
+  return picked;
+}
+
+function getRecipePartnerPriority(powerId) {
+  let priority = 0;
+  for (const recipe of EVOLUTION_RECIPES) {
+    const entry = recipe.requires.find(req => req.id === powerId);
+    if (!entry) continue;
+    const otherReq = recipe.requires.find(req => req.id !== powerId);
+    if (otherReq && getPlayerPowerLevel(otherReq.id) > 0) priority = 2;
+    else priority = Math.max(priority, 1);
+  }
+  return priority;
+}
+
+function sortBossPathCandidates(candidates) {
+  return [...candidates].sort((a, b) => {
+    const aHeld = !!getPlayerPower(a.id);
+    const bHeld = !!getPlayerPower(b.id);
+    if (aHeld !== bHeld) return aHeld ? -1 : 1;
+    const aPair = getRecipePartnerPriority(a.id);
+    const bPair = getRecipePartnerPriority(b.id);
+    if (aPair !== bPair) return bPair - aPair;
+    const aRarity = RARITY_ORDER.indexOf(a.rarity);
+    const bRarity = RARITY_ORDER.indexOf(b.rarity);
+    if (aRarity !== bRarity) return bRarity - aRarity;
+    return a.name.localeCompare(b.name);
+  });
+}
+
+function getCuratedBossPathCard(meta) {
+  if (G.pendingEvolution) {
+    return createEvolutionCard(G.pendingEvolution, 'boss_power_path');
+  }
+
+  const pool = getCandidatePool().filter(def => def.rarity === 'rare' || def.rarity === 'epic');
+  if (pool.length === 0) return null;
+
+  const heldPriority = sortBossPathCandidates(pool.filter(def => {
+    const held = getPlayerPower(def.id);
+    return held && held.level < def.maxLevel;
+  }));
+  if (heldPriority.length > 0) return buildPowerCard(heldPriority[0], 'boss_power_path');
+
+  const pairingPriority = sortBossPathCandidates(pool.filter(def => {
+    if (getPlayerPower(def.id)) return false;
+    return getRecipePartnerPriority(def.id) >= 2;
+  }));
+  if (pairingPriority.length > 0) return buildPowerCard(pairingPriority[0], 'boss_power_path');
+
+  const unheldPriority = sortBossPathCandidates(pool.filter(def => !getPlayerPower(def.id)));
+  if (unheldPriority.length > 0) return buildPowerCard(unheldPriority[0], 'boss_power_path');
+
+  return null;
+}
+
 function getRarityRoll(wave, meta) {
   // Base probabilities by wave range
   let common, rare, epic;
@@ -173,12 +310,6 @@ function getRarityRoll(wave, meta) {
     common = Math.max(40, 60 - tier * 3);
     rare = Math.min(42, 30 + tier * 2);
     epic = Math.min(18, 10 + tier * 1);
-  }
-
-  // Rare Luck upgrade: +5% Rare, +3% Epic
-  if (meta.unlocks.includes(10)) {
-    rare += 5; epic += 3; common -= 8;
-    common = Math.max(30, common);
   }
 
   const roll = Math.random() * 100;
@@ -214,73 +345,59 @@ function getCandidatePool() {
   return pool.filter(p => !evolvedIds.includes(p.id));
 }
 
-export function generateOffering(wave, meta) {
-  const pool = getCandidatePool();
+export function generateOffering(wave, meta, rewardContext = 'standard') {
+  if (rewardContext === 'boss_power_path') {
+    const card = getCuratedBossPathCard(meta);
+    return card ? [card] : [];
+  }
+
+  const basePool = getCandidatePool();
+  let pool = basePool;
+  if (rewardContext === 'start_common_choice') {
+    pool = basePool.filter(def => START_COMMON_POWER_IDS.includes(def.id) && !getPlayerPower(def.id));
+  } else if (rewardContext === 'start_arsenal_choice') {
+    pool = basePool.filter(def => START_ARSENAL_POWER_IDS.includes(def.id) && !getPlayerPower(def.id));
+  }
+
   const offering = [];
   const usedIds = new Set();
   const atCap = G.player.powers.length >= MAX_POWER_SLOTS;
+  const allowedRarities = getAllowedRaritiesForContext(rewardContext);
+  const respectPreviousPenalty = rewardContext === 'standard';
+  const includeEvolution = rewardContext === 'milestone' && !!G.pendingEvolution;
+  const budgets = getSlotBudgets(rewardContext, meta.unlocks.includes(10));
+  const cardCount = includeEvolution ? 2 : 3;
 
-  const cardCount = G.isHardcore ? 2 : 3;
   for (let slot = 0; slot < cardCount; slot++) {
-    const rarity = getRarityRoll(wave, meta);
-    let candidates = pool.filter(p => p.rarity === rarity && !usedIds.has(p.id));
+    const desiredRarity = budgets[slot] || getRarityRoll(wave, meta);
+    let candidates = [];
 
-    // Apply anti-repeat: weight ×0.5 for powers in previous offering that weren't picked
-    if (G.previousOffering.length > 0) {
-      candidates = candidates.map(c => {
-        const wasPrevious = G.previousOffering.includes(c.id);
-        return { ...c, weight: wasPrevious ? 0.5 : 1 };
-      });
-    } else {
-      candidates = candidates.map(c => ({ ...c, weight: 1 }));
+    for (const rarity of getFallbackRarities(desiredRarity, allowedRarities)) {
+      candidates = pool.filter(def => def.rarity === rarity && !usedIds.has(def.id));
+      if (candidates.length > 0) break;
     }
 
-    // Fallback: if no candidates of this rarity, try any rarity
     if (candidates.length === 0) {
-      candidates = pool.filter(p => !usedIds.has(p.id)).map(c => ({ ...c, weight: 1 }));
+      candidates = pool.filter(def => !usedIds.has(def.id) && allowedRarities.includes(def.rarity));
     }
 
-    // At cap with few unique candidates: allow duplicate upgrade options
     if (candidates.length === 0 && atCap) {
-      const upgradeable = pool.filter(p => {
-        const h = getPlayerPower(p.id);
-        return h && h.level < p.maxLevel && p.id !== 'heart';
+      candidates = pool.filter(def => {
+        const held = getPlayerPower(def.id);
+        return held && held.level < def.maxLevel && def.id !== 'heart' && allowedRarities.includes(def.rarity);
       });
-      if (upgradeable.length > 0) {
-        candidates = upgradeable.map(c => ({ ...c, weight: 1 }));
-      }
     }
 
     if (candidates.length === 0) break;
 
-    // Weighted random selection
-    const totalWeight = candidates.reduce((sum, c) => sum + c.weight, 0);
-    let r = Math.random() * totalWeight;
-    let picked = candidates[0];
-    for (const c of candidates) {
-      r -= c.weight;
-      if (r <= 0) { picked = c; break; }
-    }
-
-    const held = getPlayerPower(picked.id);
-    const isUpgrade = held && held.level < picked.maxLevel;
-
-    offering.push({
-      powerId: picked.id,
-      name: picked.name,
-      rarity: picked.rarity,
-      desc: picked.desc(isUpgrade ? held.level + 1 : 1),
-      icon: picked.icon,
-      shape: picked.shape,
-      currentLevel: held ? held.level : 0,
-      nextLevel: held ? held.level + 1 : 1,
-      isUpgrade,
-      isEvolution: false,
-    });
-
+    const picked = pickWeightedCandidate(applyPreviousOfferingWeights(candidates, respectPreviousPenalty));
+    offering.push(buildPowerCard(picked, rewardContext));
     usedIds.add(picked.id);
   }
 
+  if (includeEvolution) {
+    offering.push(createEvolutionCard(G.pendingEvolution, rewardContext));
+  }
   return offering;
 }
 
@@ -299,7 +416,7 @@ export function checkEvolutionAvailable() {
   return null;
 }
 
-export function createEvolutionCard(recipe) {
+export function createEvolutionCard(recipe, rewardContext = 'milestone') {
   return {
     powerId: recipe.id,
     name: recipe.name,
@@ -312,6 +429,12 @@ export function createEvolutionCard(recipe) {
     isUpgrade: false,
     isEvolution: true,
     recipe: recipe,
+    rewardContext,
+    rewardTags: rewardContext === 'boss_power_path'
+      ? ['Power Path', 'Evolution']
+      : rewardContext === 'milestone'
+        ? ['Milestone', 'Evolution']
+        : ['Evolution'],
   };
 }
 
@@ -423,11 +546,24 @@ export function applyWaveStartPowers() {
     if (!power.evolved) continue;
     switch (power.id) {
       case 'reflectiveShield':
-        player.shieldCharges = 2;
+        player.shieldCharges = 3;
         player.surgeActive = true;
-        player.surgeDriftMax = 350;
-        player.surgeDashSpeed = 1300;
-        player.surgeKillsRemaining = 8; // L1 equivalent
+        player.surgeDriftMax = 450;
+        player.surgeDashSpeed = 1700;
+        player.surgeKillsRemaining = 16;
+        break;
+      case 'gravityBomb':
+        player.magnetActive = true;
+        player.magnetRadius = 220;
+        player.magnetSpeed = 340;
+        player.multiPopCharges = 8;
+        player.multiPopRadius = 120;
+        break;
+      case 'thunderDash':
+        player.surgeActive = true;
+        player.surgeDriftMax = 450;
+        player.surgeDashSpeed = 1700;
+        player.surgeKillsRemaining = 16;
         break;
       case 'novaCore':
         player.shellGuardOrbs = [];
@@ -446,6 +582,9 @@ let soulHarvestKillCounter = 0;
 export function resetWaveCounters() {
   soulHarvestHealsThisWave = 0;
   soulHarvestKillCounter = 0;
+  if (G.player?.sigilState) {
+    G.player.sigilState.broodbreakerKillsLeft = G.player.sigils?.includes('broodbreaker') ? 3 : 0;
+  }
 }
 
 // Returns: false | 'heal' | 'stamina' (what happened)

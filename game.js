@@ -25,9 +25,9 @@ import { BOSS_DEFS, startBossIntro, updateBossIntro, skipBossIntro, drawBossIntr
 import { initArenaModifiers, updateArenaModifiersForWave, updateArenaModifiers, drawArenaModifiers, spawnPowerGem, slideObstacleTo, slideAllObstacles } from './systems/arena.js';
 import {
   spawnParticles,
-  updateParticles, updateFloatTexts, updateShockwaves, updateAfterimages,
+  updateParticles, updateFloatTexts, updateShockwaves, updateThunderTrails, updateAfterimages,
   updateWallFlashes, updateCollectRings, updateMultiPopExplosions, updateTapBounceRipples,
-  drawWallFlashes, drawParticles, drawCollectRings, drawMultiPopExplosions,
+  drawWallFlashes, drawParticles, drawCollectRings, drawMultiPopExplosions, drawThunderTrails,
   drawShockwaves, drawAfterimages, drawJoystick, drawTapBounceRipples
 } from './systems/particles.js';
 import { setupInput, updateDashCharge } from './systems/input.js';
@@ -36,7 +36,19 @@ import { updateTitleBackground, drawTitleBackground } from './systems/title-bg.j
 import { drawHUD } from './systems/hud.js';
 import { drawPowerSelectScreen, drawPowerIcon } from './systems/cards.js';
 import { updateCombatTexts, drawCombatTexts } from './systems/combat-text.js';
-import { POWER_DEFS, EVOLUTION_RECIPES, generateOffering, checkEvolutionAvailable, createEvolutionCard, applyPowerPick, applyWaveStartPowers, resetWaveCounters } from './systems/powers.js';
+import { POWER_DEFS, EVOLUTION_RECIPES, BOSS_SIGIL_DEFS, generateOffering, checkEvolutionAvailable, createEvolutionCard, applyPowerPick, applyWaveStartPowers, resetWaveCounters } from './systems/powers.js';
+import { getPowerSelectConfig } from './systems/power-select-config.js';
+import { getRewardContextForWave } from './systems/reward-context.js';
+import {
+  TRANSITION_REWARD_COPY,
+  EPILOGUE_REVEAL_LINES,
+  getActLabel,
+  getEpilogueRevealDuration,
+  buildTransitionRewardOptions as buildTransitionRewardOptionsData,
+  getTransitionRouteWhisper,
+  getTransitionOptionChips,
+  createTransitionRoom,
+} from './systems/transition-room.js';
 import { calculateRunBonusShards, applyShardMagnetBonus, saveMeta, getCheapestLockedUpgrade, UPGRADES, canPurchaseUpgrade, purchaseUpgrade, LOADOUTS, isLoadoutUnlocked, isTierUnlocked, canPurchaseHardcore, purchaseHardcore, getHardcoreWaveMilestoneBonus, getUnlockedCountForTier, TIER_REQUIREMENTS, recordRunAnalytics, recordStoryIntroSkip } from './systems/meta.js';
 import { spawnCombatText } from './systems/combat-text.js';
 import {
@@ -122,117 +134,27 @@ let transitionCallback = null;
 
 const RELAY_LORE_LINES = [
   ['The relay steadies your shell.', 'The core is still calling.'],
-  ['The chamber catches your return.', 'The grid is ready again.'],
+  ['The chamber catches your return.', 'The grid is ready for another run.'],
   ['Shards settle into the relay frame.', 'Your next descent can be cleaner.'],
-  ['The loop releases you for a breath.', 'Then asks you to go back in.'],
+  ['The loop releases you for a breath.', 'Then asks you to dive back in.'],
 ];
 
 const RELAY_UPGRADE_COPY = {
   1: '+1 max HP',
   2: '+25 drift max speed',
   3: '+15 max stamina',
-  4: 'Show rarity borders',
-  5: 'Start with 1 common power',
+  4: 'Show rarity borders and reward tags',
+  5: 'Choose 1 of 3 Common powers',
   6: '95% wall velocity',
   7: '+25% shard earnings',
   8: '+1 max HP again',
   9: 'Dash cooldown to 0.12s',
-  10: 'Boost rare and epic odds',
+  10: 'Upgrade one milestone reward tier',
   11: 'One revive per run',
-  12: 'Show evolution recipes',
-  13: 'Start with a chosen power',
+  12: 'Show evolution recipes and progress',
+  13: 'Choose 1 of 3 Common or Rare powers',
   14: 'Longer combo timer',
   15: 'Play past Wave 30',
-};
-
-const TRANSITION_LORE = {
-  boss_approach: {
-    hive_queen: [
-      ['The chamber narrows toward the brood gate.', 'The swarm is already listening.'],
-      ['The courier steadies at the threshold.', 'The hive answers with motion.'],
-    ],
-    nexus_core: [
-      ['The processor gate hums ahead.', 'Every signal inside it wants to fold you in.'],
-      ['The chamber strips to a hard line.', 'The core beyond it is already awake.'],
-    ],
-    void_warden: [
-      ['The relay thins into black glass.', 'Something immense is holding the center.'],
-      ['The chamber goes quiet before the last gate.', 'The void is waiting where the core should be.'],
-    ],
-  },
-  chapter_return: {
-    hive_queen: [
-      ['The brood gate collapses behind you.', 'The relay threads a cleaner route forward.'],
-      ['The chamber cools as the swarm breaks.', 'A new line through the grid opens.'],
-    ],
-    nexus_core: [
-      ['The processor goes dim behind the relay glass.', 'A calmer signal begins to pull you on.'],
-      ['The chamber catches the aftershock.', 'The next sector lights up ahead.'],
-    ],
-  },
-  epilogue: {
-    void_warden: [
-      ['The chamber stops shaking at last.', 'The core is still there.'],
-      ['The courier returns carrying silence and light.', 'The loop can breathe again.'],
-    ],
-  },
-};
-
-const TRANSITION_REWARD_COPY = {
-  shield: 'Shield the shell against the next sector.',
-  magnet: 'Draw the field tighter around the courier.',
-  surge: 'Sharpen the drift into a faster line.',
-  multipop: 'Turn breakpoints into chain collapse.',
-  chainLightning: 'Arc pressure through clustered constructs.',
-  timeWarp: 'Stretch danger into readable motion.',
-  dashBurst: 'Punch harder through crowded lanes.',
-  shellGuard: 'Orbit a defensive shell around the core.',
-  lifeSteal: 'Recover on clean impact.',
-  staminaOverflow: 'Carry a deeper reserve into the grid.',
-  overdrive: 'Spike tempo when the run is on fire.',
-  soulHarvest: 'Leave a harvest trail through pressure.',
-  gravityBomb: 'Collapse space around a problem point.',
-  thunderDash: 'Turn the dash line into thunder.',
-  reflectiveShield: 'Reflect pressure back into the loop.',
-  novaCore: 'Build a larger orbiting shell.',
-};
-
-const TRANSITION_ROUTE_WHISPERS = {
-  boss_approach: {
-    steady: 'Stability holds the shell together.',
-    risk: 'A shorter line pays only if you survive it.',
-  },
-  chapter_return: {
-    signal_cache: 'Bank the fragment and keep moving.',
-    evolution: 'Take the finished pattern before the chamber cools.',
-  },
-};
-
-const EPILOGUE_REVEAL_LINES = [
-  'The core was never dark.',
-  'It was buried under a defense that forgot what it was guarding.',
-  'The Void Warden falls. The signal holds.',
-  'The grid remembers.',
-  'When it calls again, the line will open.',
-];
-
-const TRANSITION_REWARD_TAGS = {
-  shield: ['Block Hit', 'Safe Route'],
-  magnet: ['Pickup Pull', 'Control'],
-  surge: ['Faster Drift', 'Tempo'],
-  multipop: ['Chain Burst', 'Clear'],
-  chainLightning: ['Arc Damage', 'Crowd'],
-  timeWarp: ['Slow Field', 'Control'],
-  dashBurst: ['Dash Impact', 'Aggro'],
-  shellGuard: ['Orbit Shield', 'Safe Route'],
-  lifeSteal: ['On-Hit Heal', 'Sustain'],
-  staminaOverflow: ['Deep Reserve', 'Endurance'],
-  overdrive: ['Speed Spike', 'Aggro'],
-  soulHarvest: ['Harvest Heal', 'Sustain'],
-  gravityBomb: ['Pull Field', 'Control'],
-  thunderDash: ['Shock Trail', 'Aggro'],
-  reflectiveShield: ['Reflect Hit', 'Safe Route'],
-  novaCore: ['Large Orbit', 'Fortress'],
 };
 
 export function startTransition(callback, speed) {
@@ -344,11 +266,6 @@ function wrapRelayParagraphs(text, maxWidth, maxLinesPerParagraph = 2) {
   return lines;
 }
 
-function getEpilogueRevealDuration(text, isLast = false) {
-  const base = Math.max(2.1, Math.min(4.2, 1.4 + String(text || '').length * 0.028));
-  return isLast ? base + 0.8 : base;
-}
-
 function getRelayFittedFont(text, maxWidth, startSize, minSize, weight = 'bold') {
   let size = startSize;
   while (size > minSize) {
@@ -426,98 +343,24 @@ export function startRunFromRelayChamber() {
   }, 5);
 }
 
-function getActLabel(index) {
-  const numerals = ['I', 'II', 'III', 'IV', 'V'];
-  return 'Act ' + (numerals[index] || String(index + 1));
-}
-
-function getTransitionLoreLines(mode, bossType, seed) {
-  const pool = TRANSITION_LORE[mode]?.[bossType] || [['The relay holds for a breath.', 'Then asks you to move again.']];
-  return pool[(seed || 0) % pool.length];
-}
-
-function buildTransitionRouteNodes(mode, actIndex, bossWave, bossType) {
-  const bossDef = BOSS_DEFS[bossType];
-  const currentLabel = getActLabel(Math.max(0, actIndex));
-  const nextLabel = mode === 'epilogue' ? 'Relay' : getActLabel(Math.min(3, actIndex + 1));
-  const bossLabel = bossDef?.name || 'Gate';
-  return [
-    { x: 470, y: 214, label: currentLabel, state: mode === 'boss_approach' ? 'active' : 'cleared', kind: 'act' },
-    { x: 596, y: 166, label: bossLabel, state: mode === 'chapter_return' || mode === 'epilogue' ? 'broken' : 'threat', kind: 'boss' },
-    { x: 712, y: 228, label: nextLabel, state: mode === 'boss_approach' ? 'dim' : 'lit', kind: mode === 'epilogue' ? 'relay' : 'act' },
-  ];
-}
-
-function buildBossApproachOptions(bossWave) {
-  const shardBonus = bossWave === 30 ? 40 : 20;
-  return [
-    {
-      id: 'steady',
-      routeLabel: 'Steady Route',
-      title: 'Seal the shell',
-      accent: '#72e2ff',
-      summary: ['Recover 1 HP and refill stamina.', 'Enter the gate stable and ready.'],
-    },
-    {
-      id: 'risk',
-      routeLabel: 'Risk Route',
-      title: 'Cut the shortest line',
-      accent: '#ff9b7c',
-      summary: [`Boss payout: +${shardBonus} shards.`, 'Carry +10% score into the fight.'],
-      shardBonus,
-      scoreBonus: 0.10,
-    },
-  ];
-}
-
-function buildTransitionRewardOptions() {
-  const options = [];
-  if (G.pendingEvolution) {
-    events.emit('evolutionOffered', { recipeId: G.pendingEvolution.id });
-    options.push({
-      id: 'evolution:' + G.pendingEvolution.id,
-      kind: 'power',
-      card: createEvolutionCard(G.pendingEvolution),
-      routeLabel: 'Evolve the frame',
-      title: G.pendingEvolution.name,
-      accent: '#ffd86f',
-      summary: ['Fuse the chamber into a stronger form.', 'Carry a finished pattern into the next act.'],
-    });
-    G.pendingEvolution = null;
+function buildTransitionRewardOptions(bossType) {
+  const card = generateOffering(G.wave, G.meta, 'boss_power_path')[0] || null;
+  if (card) {
+    if (card.isEvolution && G.pendingEvolution) {
+      events.emit('evolutionOffered', { recipeId: G.pendingEvolution.id });
+    } else if (card.powerId) {
+      events.emit('powerOffered', { powerId: card.powerId });
+    }
   }
-
-  const offering = generateOffering(G.wave, G.meta);
-  for (const card of offering) {
-    if (options.length >= 2) break;
-    if (card.isEvolution) continue;
-    if (options.some(option => option.card?.powerId === card.powerId)) continue;
-    events.emit('powerOffered', { powerId: card.powerId });
-    options.push({
-      id: 'power:' + card.powerId,
-      kind: 'power',
-      card,
-      routeLabel: 'Tune the chamber',
-      title: card.name,
-      accent: card.color || '#8dd8ff',
-      summary: [
-        TRANSITION_REWARD_COPY[card.powerId] || trimRelayText(card.desc || 'Carry a stronger line into the next act.', 54),
-        'Commit this route before the grid closes again.',
-      ],
-    });
-  }
-
-  while (options.length < 2) {
-    options.push({
-      id: 'signal_cache:' + options.length,
-      kind: 'signal_cache',
-      routeLabel: 'Signal Cache',
-      title: 'Bank a clean fragment',
-      accent: '#ffd86f',
-      shardBonus: 20,
-      summary: ['Collect +20 shards immediately.', 'Take a smaller edge and redeploy fast.'],
-    });
-  }
-  return options.slice(0, 2);
+  return buildTransitionRewardOptionsData({
+    bossType,
+    playerSigils: G.player.sigils || [],
+    bossSigilDefs: BOSS_SIGIL_DEFS,
+    offeringCard: card,
+    pendingEvolution: G.pendingEvolution,
+    rewardCopyByPowerId: TRANSITION_REWARD_COPY,
+    trimText: trimRelayText,
+  });
 }
 
 function clearTransitionRoomUi() {
@@ -525,128 +368,17 @@ function clearTransitionRoomUi() {
   G._transitionContinueRect = null;
 }
 
-function getTransitionRouteWhisper(mode, option) {
-  if (!option) return '';
-  if (mode === 'boss_approach') {
-    return TRANSITION_ROUTE_WHISPERS.boss_approach[option.id] || '';
-  }
-  if (mode === 'chapter_return') {
-    if (option.kind === 'signal_cache') return TRANSITION_ROUTE_WHISPERS.chapter_return.signal_cache;
-    if (option.card?.isEvolution) return TRANSITION_ROUTE_WHISPERS.chapter_return.evolution;
-    if (option.card?.powerId) {
-      const summary = TRANSITION_REWARD_COPY[option.card.powerId];
-      if (summary) return summary;
-    }
-  }
-  return option.summary?.[0] || '';
-}
-
-function getTransitionOptionChips(mode, option) {
-  if (!option) return [];
-  if (mode === 'boss_approach') {
-    return option.id === 'steady'
-      ? ['+1 HP', 'Full Stamina']
-      : [`+${option.shardBonus || 20} Shards`, 'Score +10%'];
-  }
-  if (option.kind === 'signal_cache') {
-    return ['+20 Shards', 'Immediate'];
-  }
-  if (option.card?.isEvolution) {
-    return ['Evolution', 'Route Gain'];
-  }
-  if (option.card?.powerId) {
-    return TRANSITION_REWARD_TAGS[option.card.powerId] || ['Power Gain', 'Route Gain'];
-  }
-  return [];
-}
-
-function createTransitionRoom(mode, bossWave, bossType) {
-  const actIndex = Math.max(0, Math.floor(bossWave / 10) - 1);
+function enterTransitionRoom(mode, bossWave, bossType) {
   const bossDef = BOSS_DEFS[bossType];
-  const loreLines = getTransitionLoreLines(mode, bossType, G.meta.totalRuns + bossWave);
-  const title = mode === 'boss_approach'
-    ? 'BOSS GATE'
-    : mode === 'chapter_return'
-      ? 'RETURN CHAMBER'
-      : 'THE LIGHT HOLDS';
-  const subtitle = mode === 'boss_approach'
-    ? (bossDef?.name || 'Unknown boss')
-    : mode === 'chapter_return'
-      ? 'The relay opens the next route.'
-      : 'The chamber still remembers your line.';
-  const roomAccent = mode === 'boss_approach'
-    ? '#ff9b7c'
-    : mode === 'chapter_return'
-      ? '#7ce3ff'
-      : '#ffd86f';
-  const arrivalLine = loreLines[0] || subtitle;
-  const followLine = loreLines[1] || '';
-  const continueLabel = mode === 'boss_approach'
-    ? 'Open the gate'
-    : mode === 'chapter_return'
-      ? 'Step into the next act'
-      : 'Return to the relay ledger';
-  const options = mode === 'boss_approach'
-    ? buildBossApproachOptions(bossWave)
-    : mode === 'chapter_return'
-      ? buildTransitionRewardOptions()
-      : [];
-  const gates = options.map((option, index) => ({
-    x: index === 0 ? W * 0.29 : W * 0.71,
-    y: mode === 'boss_approach'
-      ? (index === 0 ? H * 0.50 : H * 0.38)
-      : (index === 0 ? H * 0.47 : H * 0.35),
-    r: 30,
-    commitRadius: 48,
-    optionIndex: index,
-    accent: option.accent || '#7ce3ff',
-  }));
-  const exitGate = mode === 'epilogue'
-    ? { x: W * 0.5, y: H * 0.23, r: 34, commitRadius: 52, accent: '#ffd86f' }
-    : null;
-  return {
+  const options = mode === 'chapter_return' ? buildTransitionRewardOptions(bossType) : null;
+  G.transitionRoom = createTransitionRoom({
     mode,
     bossWave,
     bossType,
-    actIndex,
-    nextWave: bossWave + (mode === 'chapter_return' ? 1 : 0),
-    title,
-    subtitle,
-    arrivalLine,
-    followLine,
-    loreLines,
-    musicCue: mode,
-    routeNodes: buildTransitionRouteNodes(mode, actIndex, bossWave, bossType),
+    bossName: bossDef?.name,
+    totalRuns: G.meta.totalRuns,
     options,
-    gates,
-    exitGate,
-    spawn: { x: W * 0.5, y: H * 0.78 },
-    seal: { x: W * 0.5, y: H * 0.92 },
-    bossGate: mode === 'boss_approach' ? { x: W * 0.5, y: H * 0.17 } : null,
-    cursor: 0,
-    hoverIndex: -1,
-    selectedIndex: -1,
-    continueLabel,
-    continueWhisper: mode === 'epilogue' ? 'The relay holds. Step out of the chamber.' : '',
-    preludeActive: true,
-    preludeTimer: 0,
-    preludeReady: false,
-    preludeAdvanceDelay: 1.15,
-    outroActive: false,
-    outroTimer: 0,
-    outroDuration: 0.72,
-    outroResolved: false,
-    outroLineIndex: 0,
-    outroLineDuration: 0,
-    controlDelay: 0.22,
-    commitLine: '',
-    commitColor: roomAccent,
-    returnTarget: mode === 'epilogue' ? STATE.RUN_SUMMARY : (mode === 'boss_approach' ? STATE.BOSS_INTRO_CARD : STATE.WAVE_BREAK),
-  };
-}
-
-function enterTransitionRoom(mode, bossWave, bossType) {
-  G.transitionRoom = createTransitionRoom(mode, bossWave, bossType);
+  });
   if (G.player) {
     G.player.x = G.transitionRoom.spawn.x;
     G.player.y = G.transitionRoom.spawn.y;
@@ -1850,9 +1582,43 @@ function getWaveTransitionDuration(initialBreak) {
   return Math.min(initialBreak - 0.3, maxDur);
 }
 
+function triggerBroodbreakerSigil(data) {
+  const player = G.player;
+  if (!player?.sigils?.includes('broodbreaker')) return;
+  if (!data?.isMinion || data.source === 'broodbreakerSigil') return;
+  if (!player.sigilState || player.sigilState.broodbreakerKillsLeft <= 0) return;
+
+  player.sigilState.broodbreakerKillsLeft--;
+  player.stamina = Math.min(player.maxStamina || 100, player.stamina + 12);
+  spawnCombatText('+12 STA', data.x || player.x, (data.y || player.y) - 20, {
+    size: 16,
+    color: '#72f6ff',
+    bold: true,
+  });
+  G.multiPopExplosions.push({
+    x: data.x || player.x,
+    y: data.y || player.y,
+    r: 0,
+    maxR: 45,
+    life: 0.18,
+    maxLife: 0.18,
+  });
+  spawnParticles(data.x || player.x, data.y || player.y, '#ffb26f', 8);
+
+  for (let i = G.enemies.length - 1; i >= 0; i--) {
+    const enemy = G.enemies[i];
+    if (!enemy.alive || enemy.isBoss || enemy.spawnTimer > 0) continue;
+    if (dist({ x: data.x || player.x, y: data.y || player.y }, enemy) > 45) continue;
+    if (hitEnemy(enemy, 'broodbreakerSigil')) {
+      killEnemy(enemy, i, 'broodbreakerSigil');
+    }
+  }
+}
+
 // --- Wire up events for combat text ---
 events.on('enemyKilled', (data) => {
   G.runKills++;
+  triggerBroodbreakerSigil(data);
   // Apply score multiplier from Point Frenzy boost
   const scoreMul = getScoreMultiplier();
   const displayPts = data.points * scoreMul;
@@ -2035,6 +1801,21 @@ function checkShockwaveCollisions() {
   }
 }
 
+function checkThunderTrailCollisions() {
+  if (!G.thunderTrails || G.thunderTrails.length === 0) return;
+  for (let i = G.enemies.length - 1; i >= 0; i--) {
+    const enemy = G.enemies[i];
+    if (!enemy.alive || enemy.isBoss || enemy.spawnTimer > 0 || enemy.isFusing) continue;
+    for (const trail of G.thunderTrails) {
+      if (dist(trail, enemy) > trail.r + enemy.r) continue;
+      if (hitEnemy(enemy, 'thunderDash')) {
+        killEnemy(enemy, i, 'thunderDash');
+      }
+      break;
+    }
+  }
+}
+
 // --- Shell Guard collision check ---
 function checkShellGuardCollisions() {
   const player = G.player;
@@ -2073,11 +1854,10 @@ function checkShellGuardCollisions() {
 }
 
 function transitionToPowerSelect() {
-  const offering = generateOffering(G.wave, G.meta);
-  if (G.pendingEvolution) {
-    offering.push(createEvolutionCard(G.pendingEvolution));
+  const rewardContext = G.pendingPowerSelectContext || getRewardContextForWave(G.wave);
+  const offering = generateOffering(G.wave, G.meta, rewardContext);
+  if (offering.some(card => card.isEvolution) && G.pendingEvolution) {
     events.emit('evolutionOffered', { recipeId: G.pendingEvolution.id });
-    G.pendingEvolution = null;
   }
   // Skip power select if no cards to offer (all powers maxed)
   if (offering.length === 0) {
@@ -2086,6 +1866,8 @@ function transitionToPowerSelect() {
     G.waveBreakTimer = breakDur;
     setMusicState('wave_break');
     initWaveTransition(breakDur);
+    G.pendingPowerSelectContext = null;
+    G.powerSelectConfig = null;
     return;
   }
   // Emit glossary tracking for offered powers
@@ -2098,6 +1880,8 @@ function transitionToPowerSelect() {
   G.cardOffering = offering;
   G.cardHover = -1;
   G.cardPickAnim = null;
+  G.powerSelectConfig = getPowerSelectConfig(rewardContext);
+  G.pendingPowerSelectContext = null;
   G.collectFlashTimer = 0;
   G.collectFlashAlpha = 0;
 }
@@ -2123,9 +1907,17 @@ function finalizeTransitionRoomChoice(room, option) {
     return;
   }
 
-  if (option.kind === 'signal_cache') {
-    G.meta.shards += option.shardBonus || 20;
-    G.meta.totalShardsEarned += option.shardBonus || 20;
+  if (option.kind === 'sigil') {
+    G.player.sigils = G.player.sigils || [];
+    if (!G.player.sigils.includes(option.sigilId)) G.player.sigils.push(option.sigilId);
+    if (option.sigilId === 'broodbreaker') {
+      G.player.sigilState.broodbreakerKillsLeft = 3;
+    }
+    sfxUIClick();
+  } else if (option.kind === 'signal_cache') {
+    const shardBonus = option.shardBonus || 30;
+    G.meta.shards += shardBonus;
+    G.meta.totalShardsEarned += shardBonus;
     saveMeta(G.meta);
     sfxUIClick();
   } else if (option.card) {
@@ -2331,6 +2123,7 @@ function update(dt) {
         G.cardPickAnim = null;
         G.cardOffering = [];
         G.cardHover = -1;
+        G.powerSelectConfig = null;
 
         // Check if there's a pending evolution for next wave
         G.pendingEvolution = checkEvolutionAvailable();
@@ -2468,7 +2261,7 @@ function update(dt) {
     updatePowerUps(dt); updateBoostPickups(dt); updateShardPickups(dt);
     updateDashPreview();
     { const p = G.player; setPlayerActivity(Math.sqrt(p.vx*p.vx+p.vy*p.vy)/400, p.hp/p.maxHp); }
-    updateFloatTexts(dt); updateShockwaves(dt); updateAfterimages(dt);
+    updateFloatTexts(dt); updateShockwaves(dt); updateThunderTrails(dt); updateAfterimages(dt);
 
     // Spawn physics-style afterimage trail during wave transition scroll
     // Afterimages placed at player's effective world-Y so they trail below the viewport-fixed player
@@ -2498,7 +2291,7 @@ function update(dt) {
       enterChapterReturnRoom(G.lastBossResult.bossWave, G.lastBossResult.bossType);
       G.lastBossResult = null;
     }
-    updateParticles(dt); updateFloatTexts(dt); updateShockwaves(dt);
+    updateParticles(dt); updateFloatTexts(dt); updateShockwaves(dt); updateThunderTrails(dt);
     updateAfterimages(dt); updateCombatTexts(dt);
     return;
   }
@@ -2543,9 +2336,11 @@ function update(dt) {
   }
 
   // Shield passive charge regeneration
-  const shieldPower = G.player.powers.find(p => p.id === 'shield');
+  const shieldPower = G.player.powers.find(p => p.id === 'shield' || p.id === 'reflectiveShield');
   if (shieldPower) {
-    const shieldVals = POWER_DEFS.shield.levels[shieldPower.level - 1];
+    const shieldVals = shieldPower.id === 'reflectiveShield'
+      ? POWER_DEFS.shield.levels[2]
+      : POWER_DEFS.shield.levels[shieldPower.level - 1];
     if (G.player.shieldCharges < shieldVals.charges) {
       G.player.shieldRegenTimer = (G.player.shieldRegenTimer || 0) + dt;
       if (G.player.shieldRegenTimer >= shieldVals.regenTime) {
@@ -2612,7 +2407,7 @@ function update(dt) {
 
   updateDashCharge(dt); updatePlayer(dt); updateEnemies(dt); updatePowerUps(dt); updateParticles(dt);
   { const p = G.player; setPlayerActivity(Math.sqrt(p.vx*p.vx+p.vy*p.vy)/400, p.hp/p.maxHp); }
-  updateFloatTexts(dt); updateShockwaves(dt); updateAfterimages(dt);
+  updateFloatTexts(dt); updateShockwaves(dt); updateThunderTrails(dt); updateAfterimages(dt);
   updateWallFlashes(dt); updateCollectRings(dt); updateMultiPopExplosions(dt);
   updateTapBounceRipples(dt); updateCombatTexts(dt);
   updateArenaModifiers(dt);
@@ -2625,6 +2420,7 @@ function update(dt) {
   updateParallaxDots(dt);
   updateToasts(dt);
   checkShockwaveCollisions();
+  checkThunderTrailCollisions();
   checkShellGuardCollisions();
   checkCollisions();
 }
@@ -2647,10 +2443,21 @@ function drawTitleScreen() {
   ctx.fillRect(0, 0, W, H);
 
   const titlePulse = 14 + 6 * Math.sin(Date.now() / 800 * Math.PI);
-  drawGlowText('BOUNCE BLITZ', W / 2, H * 0.28, 'bold 64px ' + FONT, '#ffffff', '#00ffff', titlePulse);
+  drawGlowText('BOUNCE BLITZ', W / 2, H * 0.255, 'bold 60px ' + FONT, '#ffffff', '#00ffff', titlePulse);
+  drawGlowText('LAST COURIER', W / 2, H * 0.335, 'bold 24px ' + FONT, '#ffd58f', '#ff9f66', 10);
+
+  ctx.save();
+  ctx.font = 'bold 16px ' + FONT;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillStyle = '#b8c8df';
+  ctx.shadowColor = 'rgba(0,0,0,0.45)';
+  ctx.shadowBlur = 6;
+  ctx.fillText('The core is still active. You are the last courier in range.', W / 2, H * 0.39);
+  ctx.restore();
 
   if (G.highScore > 0) {
-    drawGlowText('HIGH SCORE: ' + formatScore(G.highScore), W / 2, H * 0.42, 'bold 22px ' + FONT, '#ffdd00', '#ffaa00', 6);
+    drawGlowText('HIGH SCORE: ' + formatScore(G.highScore), W / 2, H * 0.455, 'bold 22px ' + FONT, '#ffdd00', '#ffaa00', 6);
   }
 
   // Shard count with shimmer glow
@@ -2665,9 +2472,9 @@ function drawTitleScreen() {
     ctx.shadowColor = `rgba(255, 200, 50, ${shimmerAlpha})`;
     ctx.shadowBlur = shimmerGlow;
     ctx.fillStyle = '#ffdd44';
-    ctx.fillText(shardText, W / 2, H * 0.48);
+    ctx.fillText(shardText, W / 2, H * 0.515);
     ctx.shadowBlur = 0;
-    ctx.fillText(shardText, W / 2, H * 0.48);
+    ctx.fillText(shardText, W / 2, H * 0.515);
     ctx.restore();
   }
 
@@ -2938,7 +2745,9 @@ function drawModeSelectScreen() {
     const isHovered = cursor === i;
     const color = i === 0 ? '#00ffcc' : '#ffdd44';
     const label = i === 0 ? 'STORY' : 'ENDLESS';
-    const desc = i === 0 ? 'Waves 1–30\nBoss battles\nComplete the game' : 'Endless cycles\nRotating encounter logic\nHow long can you hold?';
+    const desc = i === 0
+      ? '30-wave campaign\n3 boss fights\nReach the core'
+      : 'Survive past Wave 30\nRotating late-game cycles\nHow long can you last?';
 
     ctx.save();
     const drawX = cx - cardW / 2;
@@ -3271,11 +3080,11 @@ function drawRelayChamber() {
   const ctaActions = ['runback', 'upgrades', 'menu'];
   const focusSection = chamber.focusSection || 'cta';
   const previewTheme = {
-    standard: { accent: '#6ff7ff', glow: '#6ff7ff', tint: 'rgba(111,247,255,0.16)', title: 'Balanced redeploy' },
-    glass_cannon: { accent: '#ffb27c', glow: '#ff9966', tint: 'rgba(255,153,102,0.15)', title: 'Precision striker' },
-    tank: { accent: '#81f3c2', glow: '#5bd8a0', tint: 'rgba(91,216,160,0.16)', title: 'Fortress chassis' },
-    hardcore: { accent: '#ff8492', glow: '#ff5c6f', tint: 'rgba(255,92,111,0.17)', title: 'Single-life frame' },
-  }[previewLoadout.id] || { accent: '#6ff7ff', glow: '#6ff7ff', tint: 'rgba(111,247,255,0.16)', title: 'Balanced redeploy' };
+    standard: { accent: '#6ff7ff', glow: '#6ff7ff', tint: 'rgba(111,247,255,0.16)', title: 'Balanced starter' },
+    glass_cannon: { accent: '#ffb27c', glow: '#ff9966', tint: 'rgba(255,153,102,0.15)', title: 'High risk, high score' },
+    tank: { accent: '#81f3c2', glow: '#5bd8a0', tint: 'rgba(91,216,160,0.16)', title: 'Safer, slower build' },
+    hardcore: { accent: '#ff8492', glow: '#ff5c6f', tint: 'rgba(255,92,111,0.17)', title: 'One life challenge' },
+  }[previewLoadout.id] || { accent: '#6ff7ff', glow: '#6ff7ff', tint: 'rgba(111,247,255,0.16)', title: 'Balanced starter' };
 
   const drawPanel = (x, y, w, h, accent, alpha = 0.78) => {
     ctx.save();
@@ -3320,7 +3129,7 @@ function drawRelayChamber() {
   ctx.textBaseline = 'top';
   ctx.font = 'bold 16px ' + FONT;
   ctx.fillStyle = '#dfeaff';
-  ctx.fillText('Recovery loop stable.', 62, 132);
+  ctx.fillText('Ready for another run.', 62, 132);
   ctx.font = '13px ' + FONT;
   ctx.fillStyle = '#98abc4';
   const loreLines = lore;
@@ -3334,16 +3143,16 @@ function drawRelayChamber() {
   ctx.fillText('QUICK SPEND', 62, 240);
   ctx.font = '12px ' + FONT;
   ctx.fillStyle = '#8395b1';
-  ctx.fillText('Buy a calibration and stay in the loop.', 62, 261);
+  ctx.fillText('Spend shards, then dive back in.', 62, 261);
 
   G._relayUpgradeRects = [];
   const quickUpgradeIds = chamber.quickUpgradeIds || [];
   if (quickUpgradeIds.length === 0) {
     ctx.font = '14px ' + FONT;
     ctx.fillStyle = '#a7b6cb';
-    ctx.fillText('All chamber calibrations are already installed.', 62, 314);
+    ctx.fillText('You already own every quick upgrade here.', 62, 314);
     ctx.fillStyle = '#70809a';
-    ctx.fillText('Open the full upgrades view to review your meta build.', 62, 336);
+    ctx.fillText('Open Upgrades to review the full tree.', 62, 336);
   } else {
     for (let i = 0; i < quickUpgradeIds.length; i++) {
       const upgrade = UPGRADES.find(u => u.id === quickUpgradeIds[i]);
@@ -3477,7 +3286,7 @@ function drawRelayChamber() {
   ctx.fillStyle = previewUnlocked ? '#9ab0cb' : '#aeb8c8';
   const previewStartText = previewLoadout.powers.length > 0
     ? previewLoadout.powers.join(', ')
-    : (previewLoadout.id === 'hardcore' ? 'No powers. No revives. Fewer picks.' : 'No starting powers.');
+    : (previewLoadout.id === 'hardcore' ? 'No powers. No revives. Brutal stakes.' : 'No starting powers.');
   const startLines = wrapRelayText(previewStartText, 300, 2);
   for (let i = 0; i < startLines.length; i++) {
     ctx.fillText(startLines[i], 416, 416 + i * 14);
@@ -3567,14 +3376,14 @@ function drawRelayChamber() {
     ctx.restore();
   };
 
-  drawActionButton(runItBackRect, 'Run It Back', 'Re-enter the loop', 'runback', true);
-  drawActionButton(upgradesRect, 'Open Upgrades', 'Tune the chamber', 'upgrades');
+  drawActionButton(runItBackRect, 'Run It Back', 'Start another run', 'runback', true);
+  drawActionButton(upgradesRect, 'Open Upgrades', 'Spend more shards', 'upgrades');
   drawActionButton(menuRect, 'Main Menu', 'Leave the relay', 'menu');
 
   ctx.font = '12px ' + FONT;
   ctx.textAlign = 'center';
   ctx.fillStyle = '#7f91ad';
-  ctx.fillText('Quick buy, tune your frame, and dive back into the grid.', W / 2, 584);
+  ctx.fillText('Spend fast, swap loadouts, and get back into the grid.', W / 2, 584);
 
   ctx.restore();
 }
@@ -4407,7 +4216,7 @@ function drawLoadoutScreen() {
     ctx.font = '11px ' + FONT;
     ctx.textAlign = 'left';
     ctx.fillStyle = '#7f93b1';
-    ctx.fillText(previewLoadout.id === 'hardcore' ? 'No powers, no revives, fewer picks.' : 'Starts clean with no power advantage.', previewX + 18, previewY + 304);
+    ctx.fillText(previewLoadout.id === 'hardcore' ? 'No powers, no revives, brutal stakes.' : 'Starts clean with no power advantage.', previewX + 18, previewY + 304);
   }
 
   if (!previewUnlocked) {
@@ -4685,6 +4494,9 @@ function draw() {
 
   // Multi-Pop explosions
   drawMultiPopExplosions();
+
+  // Thunder Dash lingering trail
+  drawThunderTrails();
 
   // Reverse wave transition offset before UI overlays
   if (transOffset > 0) ctx.translate(0, -transOffset);
@@ -4991,8 +4803,29 @@ function draw() {
       }
     }
 
+    let sigilRowY = gridY + Math.ceil(visibleSlots / 2) * (cardH + gapY) + 12;
+    if (player.sigils && player.sigils.length) {
+      ctx.save();
+      ctx.font = 'bold 12px ' + FONT;
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'middle';
+      ctx.fillStyle = '#9db1cb';
+      ctx.fillText('SIGILS', gridX, sigilRowY);
+      for (let i = 0; i < player.sigils.length; i++) {
+        const sigilId = player.sigils[i];
+        const cx = gridX + 62 + i * 34;
+        if (sigilId === 'broodbreaker') {
+          drawPowerIcon('#ffb26f', 'diamond', cx, sigilRowY, 8);
+        } else if (sigilId === 'feedback') {
+          drawPowerIcon('#8dd8ff', 'bolt', cx, sigilRowY, 8);
+        }
+      }
+      ctx.restore();
+      sigilRowY += 20;
+    }
+
     // --- Pause menu buttons ---
-    const btnY = gridY + Math.ceil(visibleSlots / 2) * (cardH + gapY) + 20;
+    const btnY = sigilRowY + 8;
     const btnW = 184, btnH = 40, btnGap = 12;
     const rowX = W / 2 - (btnW * 2 + btnGap) / 2;
     const pauseButtons = [

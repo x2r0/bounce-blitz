@@ -1107,11 +1107,11 @@ export function defeatBoss(boss) {
   G.bossRouteShardBonus = 0;
   G.bossRouteScoreBonus = 0;
 
-  // Power gem drop (100% on boss kill)
-  spawnPowerGem(boss.x, boss.y, { common: 15, rare: 50, epic: 35 });
-
-  // Guaranteed boost pickup drop
-  spawnBossBoost(boss.x + 25, boss.y);
+  if (boss.wave > 30) {
+    // Endless bosses keep the old drop cadence because they have no story return room.
+    spawnPowerGem(boss.x, boss.y, { common: 15, rare: 50, epic: 35 });
+    spawnBossBoost(boss.x + 25, boss.y);
+  }
 
   // Screen effects
   if (isFinalBoss) {

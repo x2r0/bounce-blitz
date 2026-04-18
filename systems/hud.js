@@ -5,6 +5,7 @@ import { formatScore, formatTime, lerp } from '../utils.js';
 import { G } from '../state.js';
 import { ctx, drawGlowText } from '../canvas.js';
 import { getEnemyCount } from '../systems/wave.js';
+import { drawPowerIcon } from './cards.js';
 
 function drawHudPanel(x, y, w, h, glow) {
   ctx.save();
@@ -22,8 +23,14 @@ function drawHudPanel(x, y, w, h, glow) {
 
 export function drawHUD() {
   const player = G.player;
+  const hasSigils = !!(player.sigils && player.sigils.length);
+  const leftPanelH = G.isHardcore
+    ? (hasSigils ? 134 : 112)
+    : (hasSigils ? 114 : 92);
+  const waveTextY = hasSigils ? 83 : 65;
+  const waveBarY = hasSigils ? 103 : 85;
 
-  drawHudPanel(8, 8, 184, G.isHardcore ? 112 : 92, 'rgba(0, 220, 255, 0.24)');
+  drawHudPanel(8, 8, 184, leftPanelH, 'rgba(0, 220, 255, 0.24)');
   drawHudPanel(W - 176, 8, 168, G.combo >= 2 ? 108 : 88, 'rgba(255, 120, 180, 0.20)');
 
   // HP orbs — top-left
@@ -108,6 +115,27 @@ export function drawHUD() {
     ctx.restore();
   }
 
+  if (hasSigils) {
+    const sigilY = 66;
+    ctx.save();
+    ctx.font = '10px ' + FONT;
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = '#90a8c6';
+    ctx.fillText('SIGILS', 16, sigilY);
+    ctx.restore();
+    for (let i = 0; i < player.sigils.length; i++) {
+      const sigilId = player.sigils[i];
+      const cx = 66 + i * 34;
+      const cy = sigilY + 1;
+      if (sigilId === 'broodbreaker') {
+        drawPowerIcon('#ffb26f', 'diamond', cx, cy, 8);
+      } else if (sigilId === 'feedback') {
+        drawPowerIcon('#8dd8ff', 'bolt', cx, cy, 8);
+      }
+    }
+  }
+
   // Timer — top-right
   ctx.save();
   ctx.font = '16px ' + FONT;
@@ -184,19 +212,19 @@ export function drawHUD() {
     ctx.font = '16px ' + FONT;
     if (remaining > 0) {
       ctx.fillStyle = '#aaaaaa';
-      ctx.fillText('Wave ' + G.wave + ' — ' + remaining + ' remaining', 16, 65);
+      ctx.fillText('Wave ' + G.wave + ' — ' + remaining + ' remaining', 16, waveTextY);
     } else {
       const fa = Math.min(1, G.waveClearFlashTimer);
       ctx.shadowColor = '#00ffcc';
       ctx.shadowBlur = 8;
       ctx.fillStyle = 'rgba(0,255,204,' + fa + ')';
-      ctx.fillText('Wave ' + G.wave + ' — CLEAR!', 16, 65);
+      ctx.fillText('Wave ' + G.wave + ' — CLEAR!', 16, waveTextY);
       ctx.shadowBlur = 0;
-      ctx.fillText('Wave ' + G.wave + ' — CLEAR!', 16, 65);
+      ctx.fillText('Wave ' + G.wave + ' — CLEAR!', 16, waveTextY);
     }
     ctx.restore();
 
-    const barX = 16, barY = 85, barW = 120, barH = 4;
+    const barX = 16, barY = waveBarY, barW = 120, barH = 4;
     const progress = total > 0 ? killed / total : 0;
     ctx.save();
     ctx.fillStyle = '#1a2a2a';
@@ -216,16 +244,16 @@ export function drawHUD() {
     ctx.shadowColor = '#00ffcc';
     ctx.shadowBlur = 8;
     ctx.fillStyle = 'rgba(0,255,204,' + fa + ')';
-    ctx.fillText('Wave ' + G.wave + ' — CLEAR!', 16, 55);
+    ctx.fillText('Wave ' + G.wave + ' — CLEAR!', 16, hasSigils ? 73 : 55);
     ctx.shadowBlur = 0;
-    ctx.fillText('Wave ' + G.wave + ' — CLEAR!', 16, 55);
+    ctx.fillText('Wave ' + G.wave + ' — CLEAR!', 16, hasSigils ? 73 : 55);
     ctx.restore();
   } else if (G.state === STATE.GAME_OVER) {
     ctx.save();
     ctx.fillStyle = '#aaaaaa';
     ctx.textAlign = 'left'; ctx.textBaseline = 'top';
     ctx.font = '16px ' + FONT;
-    ctx.fillText('Wave ' + G.wave, 16, 55);
+    ctx.fillText('Wave ' + G.wave, 16, hasSigils ? 73 : 55);
     ctx.restore();
   }
 

@@ -49,12 +49,12 @@ const STORY_WAVE_PLAN = {
   21: { templateKey: 'Pinch', compositionKey: 'void_rotation', notes: 'Begin late-story spatial dread.' },
   22: { templateKey: 'Spiral', compositionKey: 'teleport_fakeout', notes: 'Safe route versus tempo route.' },
   23: { templateKey: 'Arena', compositionKey: 'crossing_test', notes: 'Kill line-breakers first.' },
-  24: { templateKey: 'ReflectionChamber', compositionKey: 'geometry_tool', enemyCap: 13, burstProfile: { bursts: 2, interval: 0.40, pause: 2.4 }, notes: 'High-clarity mastery wave.' },
-  25: { templateKey: 'SplitField', compositionKey: 'fortress_anchor', enemyCap: 13, notes: 'Break the anchor, then cross.' },
+  24: { templateKey: 'ReflectionChamber', compositionKey: 'geometry_tool', enemyCap: 14, burstProfile: { bursts: 2, interval: 0.40, pause: 2.2 }, notes: 'High-clarity mastery wave.' },
+  25: { templateKey: 'SplitField', compositionKey: 'fortress_anchor', enemyCap: 14, notes: 'Break the anchor, then cross.' },
   26: { templateKey: 'Labyrinth', compositionKey: 'attrition_labyrinth', notes: 'Read dead zones before they trap you.' },
-  27: { templateKey: 'Pinch', compositionKey: 'final_exam', enemyCap: 13, notes: 'Low-space risk management.' },
+  27: { templateKey: 'Pinch', compositionKey: 'final_exam', enemyCap: 14, notes: 'Low-space risk management.' },
   28: { templateKey: 'Spiral', compositionKey: 'flood_management', notes: 'Multi-problem solve under tempo.' },
-  29: { templateKey: 'RiftLite', compositionKey: 'final_exam', enemyCap: 13, burstProfile: { bursts: 2, interval: 0.36, pause: 2.2 }, notes: 'Final pre-boss exam.' },
+  29: { templateKey: 'RiftLite', compositionKey: 'final_exam', enemyCap: 14, burstProfile: { bursts: 2, interval: 0.36, pause: 2.0 }, notes: 'Final pre-boss exam.' },
   30: { templateKey: 'TheRift', compositionKey: 'final_exam', notes: 'Boss arena owned by Void Warden flow.' },
 };
 

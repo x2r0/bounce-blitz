@@ -24,6 +24,7 @@ export const G = {
   floatTexts: [],
   combatTexts: [],
   shockwaves: [],
+  thunderTrails: [],
   afterimages: [],
   wallFlashes: [],
   collectRings: [],
@@ -58,6 +59,8 @@ export const G = {
   previousOffering: [],
   pendingEvolution: null,
   pendingPowerSelect: false,
+  pendingPowerSelectContext: null,
+  powerSelectConfig: null,
 
   // --- Roguelike: Run stats ---
   runKills: 0,
@@ -240,12 +243,15 @@ export function resetGameState() {
     eyeWideTimer: 0, eyeHappyTimer: 0, eyeDead: false,
     // Persistent powers: { id: string, level: number } entries
     powers: [],
+    sigils: [],
+    sigilState: { broodbreakerKillsLeft: 0, feedbackDashCount: 0 },
     // Active power state per-wave
     shieldCharges: 0, shieldRegenTimer: 0,
     magnetActive: false, magnetRadius: 0, magnetSpeed: 0,
     surgeActive: false, surgeDriftMax: 0, surgeDashSpeed: 0, surgeKillsRemaining: 0,
     multiPopCharges: 0, multiPopRadius: 0,
     shellGuardOrbs: [],
+    thunderTrailSpawnTimer: 0,
     overdriveTimer: 0, overdriveSpeed: 0, overdrive2x: false,
     soulHarvestPierceTimer: 0,
     // Shield visual
@@ -261,26 +267,13 @@ export function resetGameState() {
     G.player.powers.push({ id: 'shield', level: 1 });
   }
 
-  // Lucky Start: begin with 1 random Common power at L1
-  if (meta.unlocks.includes(5)) {
-    const commons = ['shield', 'magnet', 'dashBurst', 'shellGuard', 'staminaOverflow'];
-    const existing = G.player.powers.map(p => p.id);
-    const available = commons.filter(c => !existing.includes(c));
-    if (available.length > 0) {
-      const pick = available[Math.floor(Math.random() * available.length)];
-      G.player.powers.push({ id: pick, level: 1 });
-    }
-  }
-
-  // Starting Arsenal: begin with choice of any 1 power at L1 (simplified: random rare/epic)
-  // This would normally show a selection UI, but for now we skip it in resetGameState
-
   G.enemies = [];
   G.powerUps = [];
   G.particles = [];
   G.floatTexts = [];
   G.combatTexts = [];
   G.shockwaves = [];
+  G.thunderTrails = [];
   G.afterimages = [];
   G.wallFlashes = [];
   G.collectRings = [];
@@ -304,6 +297,16 @@ export function resetGameState() {
   G.previousOffering = [];
   G.pendingEvolution = null;
   G.pendingPowerSelect = false;
+  G.pendingPowerSelectContext = null;
+  G.powerSelectConfig = null;
+
+  if (meta.unlocks.includes(13)) {
+    G.pendingPowerSelect = true;
+    G.pendingPowerSelectContext = 'start_arsenal_choice';
+  } else if (meta.unlocks.includes(5)) {
+    G.pendingPowerSelect = true;
+    G.pendingPowerSelectContext = 'start_common_choice';
+  }
 
   G.runKills = 0;
   G.runWaves = 0;
@@ -315,7 +318,7 @@ export function resetGameState() {
     damageTaken: 0,
     revivesUsed: 0,
     waveReached: 0,
-    killSources: { player: 0, multipop: 0, chainLightning: 0, nuke: 0, other: 0 },
+    killSources: { player: 0, multipop: 0, chainLightning: 0, nuke: 0, broodbreakerSigil: 0, feedbackSigil: 0, other: 0 },
   };
 
   G.runSummary = null;
@@ -431,13 +434,26 @@ export function restoreRunState() {
   G.isEndlessRun = saved.isEndlessRun || false;
   G.previousOffering = saved.previousOffering || [];
   G.pendingEvolution = saved.pendingEvolution || null;
+  G.pendingPowerSelect = false;
+  G.pendingPowerSelectContext = null;
+  G.powerSelectConfig = null;
   G.runTelemetry = saved.runTelemetry || {
     loadout: inferredLoadout,
     isEndlessRun: !!saved.isEndlessRun,
     damageTaken: 0,
     revivesUsed: saved.usedSecondWind ? 1 : 0,
     waveReached: saved.wave || 0,
-    killSources: { player: 0, multipop: 0, chainLightning: 0, nuke: 0, other: 0 },
+    killSources: { player: 0, multipop: 0, chainLightning: 0, nuke: 0, broodbreakerSigil: 0, feedbackSigil: 0, other: 0 },
+  };
+  G.runTelemetry.killSources = {
+    player: 0,
+    multipop: 0,
+    chainLightning: 0,
+    nuke: 0,
+    broodbreakerSigil: 0,
+    feedbackSigil: 0,
+    other: 0,
+    ...(G.runTelemetry.killSources || {}),
   };
 
   const sp = saved.player;
@@ -446,6 +462,11 @@ export function restoreRunState() {
   G.player.stamina = sp.maxStamina; // full stamina on resume
   G.player.maxStamina = sp.maxStamina;
   G.player.powers = sp.powers.map(pw => ({ id: pw.id, level: pw.level }));
+  G.player.sigils = Array.isArray(sp.sigils) ? [...sp.sigils] : [];
+  G.player.sigilState = {
+    broodbreakerKillsLeft: sp.sigilState?.broodbreakerKillsLeft || 0,
+    feedbackDashCount: sp.sigilState?.feedbackDashCount || 0,
+  };
   G.player.scoreMod = sp.scoreMod;
   G.player.dashCostReduction = sp.dashCostReduction || 0;
   G.player.staminaRegenBonus = sp.staminaRegenBonus || 0;

@@ -7,6 +7,7 @@ import { W, H, STATE, BOUNCE_MIN_SPEED, DASH_COOLDOWN, DASH_SPEED,
   CHARGE_GRACE_MIN, CHARGE_GRACE_MAX, CHARGE_RECOVERY_MIN, CHARGE_RECOVERY_MAX,
   CHARGE_DASH_MASTER_TAP, CHARGE_POWER_SCALE_MIN, CHARGE_POWER_SCALE_MAX,
   CHARGE_TIMEWARP_SCALE_MIN, CHARGE_TIMEWARP_SCALE_MAX,
+  CHARGE_THUNDER_TRAIL_MIN, CHARGE_THUNDER_TRAIL_MAX,
   CHARGE_OVERDRIVE_SPEED_MUL,
   AIM_CANCEL_RADIUS, DIFFICULTY_DASH_OVERRIDES,
   DASH_TOOLTIP_COUNT, DASH_TOOLTIP_DURATION, DASH_TOOLTIP_STORAGE_KEY } from '../config.js';
@@ -17,8 +18,9 @@ import { getCardAtPosition } from './cards.js';
 import { UPGRADES, canPurchaseUpgrade, purchaseUpgrade, LOADOUTS, isLoadoutUnlocked, saveMeta, canPurchaseHardcore, purchaseHardcore } from './meta.js';
 import { POWER_DEFS, getPlayerPower } from './powers.js';
 import { isFreeDash } from './lootcrate.js';
-import { killEnemy } from '../entities/enemy.js';
+import { hitEnemy, killEnemy } from '../entities/enemy.js';
 import { dist } from '../utils.js';
+import { spawnParticles } from './particles.js';
 import { ensureTitleMusicStarted, sfxDash, sfxUIClick, sfxCardPick, startMusic, stopMusic, setBossMusic, setMusicState,
   getMusicVolume, getSfxVolume, isMuted, setMusicVolume, setSfxVolume, toggleMute } from './audio.js';
 import { saveRunState, hasSavedRun, clearRunState, saveSettings } from './save.js';
@@ -598,9 +600,12 @@ function performDash(bdx, bdy, t) {
 
   // Dash Burst: explosion at launch point, radius scaled by charge
   const dashBurst = getPlayerPower('dashBurst');
-  if (dashBurst) {
-    const vals = POWER_DEFS.dashBurst.levels[dashBurst.level - 1];
-    const scaledRadius = vals.radius * powerScale;
+  const novaCore = player.powers.find(p => p.id === 'novaCore');
+  const dashBurstVals = dashBurst
+    ? POWER_DEFS.dashBurst.levels[dashBurst.level - 1]
+    : (novaCore ? POWER_DEFS.dashBurst.levels[2] : null);
+  if (dashBurstVals) {
+    const scaledRadius = dashBurstVals.radius * powerScale;
     G.multiPopExplosions.push({ x: player.x, y: player.y, r: 0, maxR: scaledRadius, life: 0.2, maxLife: 0.2 });
     for (let i = G.enemies.length - 1; i >= 0; i--) {
       const e = G.enemies[i];
@@ -610,13 +615,12 @@ function performDash(bdx, bdy, t) {
       }
     }
     // L3 fire zone: spawns regardless of charge level (no scaling)
-    if (vals.fireZone) {
-      G.multiPopExplosions.push({ x: player.x, y: player.y, r: 0, maxR: vals.radius, life: vals.fireZoneDuration, maxLife: vals.fireZoneDuration, isFireZone: true });
+    if (dashBurstVals.fireZone) {
+      G.multiPopExplosions.push({ x: player.x, y: player.y, r: 0, maxR: dashBurstVals.radius, life: dashBurstVals.fireZoneDuration, maxLife: dashBurstVals.fireZoneDuration, isFireZone: true });
     }
   }
 
   // Nova Core: detonate all orbs, orb explosion radius scaled by charge
-  const novaCore = player.powers.find(p => p.id === 'novaCore');
   if (novaCore && player.shellGuardOrbs) {
     const scaledOrbRadius = 70 * powerScale;
     for (const orb of player.shellGuardOrbs) {
@@ -637,6 +641,25 @@ function performDash(bdx, bdy, t) {
     }
   }
 
+  if (player.powers.find(p => p.id === 'thunderDash')) {
+    const trailDuration = CHARGE_THUNDER_TRAIL_MIN + (CHARGE_THUNDER_TRAIL_MAX - CHARGE_THUNDER_TRAIL_MIN) * t;
+    const trailLength = 150 + 90 * t;
+    const segmentCount = 6;
+    const segmentRadius = 20 + 4 * t;
+    G.thunderTrails = G.thunderTrails || [];
+    for (let i = 0; i < segmentCount; i++) {
+      const progress = segmentCount === 1 ? 0 : i / (segmentCount - 1);
+      G.thunderTrails.push({
+        x: player.x + bdx * trailLength * progress,
+        y: player.y + bdy * trailLength * progress,
+        r: segmentRadius,
+        life: trailDuration,
+        maxLife: trailDuration,
+      });
+    }
+    spawnParticles(player.x + bdx * 40, player.y + bdy * 40, '#88ccff', 10);
+  }
+
   // Time Warp: freeze enemies, duration scaled by charge
   const twPower = getPlayerPower('timeWarp');
   if (twPower) {
@@ -647,6 +670,26 @@ function performDash(bdx, bdy, t) {
       if (!e.alive || e.isBoss || e.spawnTimer > 0) continue;
       if (dist(player, e) < twVals.radius) {
         e.freezeTimer = scaledFreeze;
+      }
+    }
+  }
+
+  if (player.sigils?.includes('feedback')) {
+    player.sigilState.feedbackDashCount = (player.sigilState.feedbackDashCount || 0) + 1;
+    if (player.sigilState.feedbackDashCount % 5 === 0) {
+      const targets = G.enemies
+        .filter(enemy => enemy.alive && !enemy.isBoss && enemy.spawnTimer <= 0)
+        .map(enemy => ({ enemy, distance: dist(player, enemy) }))
+        .filter(entry => entry.distance <= 150)
+        .sort((a, b) => a.distance - b.distance)
+        .slice(0, 2);
+
+      for (const { enemy } of targets) {
+        spawnParticles(enemy.x, enemy.y, '#8dd8ff', 6);
+        spawnParticles((player.x + enemy.x) / 2, (player.y + enemy.y) / 2, '#8dd8ff', 4);
+        if (hitEnemy(enemy, 'feedbackSigil')) {
+          killEnemy(enemy, G.enemies.indexOf(enemy), 'feedbackSigil');
+        }
       }
     }
   }

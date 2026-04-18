@@ -172,7 +172,7 @@ function isShieldPiercing(source, enemy) {
   // Multi-Pop explosion source
   if (source === 'multipop') return true;
   // Chain Lightning L3
-  if (source === 'chainLightning' && getPlayerPowerLevel('chainLightning') >= 3) return true;
+  if (source === 'chainLightning' && (getPlayerPowerLevel('chainLightning') >= 3 || player.powers.find(p => p.id === 'thunderDash'))) return true;
   // Soul Harvest L3 shield-pierce window
   if (player.soulHarvestPierceTimer > 0) return true;
   return false;
@@ -258,7 +258,16 @@ export function killEnemy(e, index, source) {
   G.score += points;
   triggerShake(G, 3, 0.08); G.freezeTimer = 0.03;
   spawnParticles(e.x, e.y, e.color, 8);
-  events.emit('enemyKilled', { type: e.type, points, combo: G.combo, x: e.x, y: e.y, source: source || 'other' });
+  events.emit('enemyKilled', {
+    type: e.type,
+    points,
+    combo: G.combo,
+    x: e.x,
+    y: e.y,
+    source: source || 'other',
+    isMinion: e.type === 'mini_splitter' || e.type === 'spawner_minion' || !!e.owner,
+    ownerBossType: e.owner?.bossType || null,
+  });
 
   if (G.combo >= 2) {
     G.floatTexts.push({ text: 'x' + G.combo, x: e.x, y: e.y, size: 24, alpha: 1,
@@ -287,7 +296,7 @@ export function killEnemy(e, index, source) {
   }
 
   // Chain Lightning
-  const chainPower = getPlayerPower('chainLightning');
+  const chainPower = getPlayerPower('chainLightning') || (player.powers.find(p => p.id === 'thunderDash') ? { level: 3 } : null);
   if (chainPower) {
     const vals = POWER_DEFS.chainLightning.levels[chainPower.level - 1];
     let lastX = e.x, lastY = e.y;
@@ -322,7 +331,7 @@ export function killEnemy(e, index, source) {
   const gravityBomb = player.powers.find(p => p.id === 'gravityBomb');
   if (gravityBomb) {
     G.gravityWells = G.gravityWells || [];
-    G.gravityWells.push({ x: e.x, y: e.y, timer: 1.5, radius: 60, pullSpeed: 300 });
+    G.gravityWells.push({ x: e.x, y: e.y, timer: 1.8, radius: 90, pullSpeed: 360, explosionRadius: 120 });
   }
 
   // Splitter spawns mini-splitters
@@ -481,10 +490,11 @@ export function updateEnemies(dt) {
         }
       }
       if (well.timer <= 0) {
-        G.multiPopExplosions.push({ x: well.x, y: well.y, r: 0, maxR: 100, life: 0.2, maxLife: 0.2 });
+        const explosionRadius = well.explosionRadius || 100;
+        G.multiPopExplosions.push({ x: well.x, y: well.y, r: 0, maxR: explosionRadius, life: 0.2, maxLife: 0.2 });
         for (let j = G.enemies.length - 1; j >= 0; j--) {
           const e = G.enemies[j];
-          if (e.alive && !e.isFusing && dist(well, e) < 100) {
+          if (e.alive && !e.isFusing && dist(well, e) < explosionRadius) {
             killEnemy(e, j);
           }
         }

@@ -141,18 +141,18 @@ export const UPGRADES = [
   { id: 2, name: 'Quick Feet', effect: '+25 px/s drift max speed', cost: 100, tier: 1 },
   { id: 3, name: 'Deep Breath', effect: '+15 max stamina', cost: 75, tier: 1 },
   // Tier 2 (requires 2 from Tier 1)
-  { id: 4, name: 'Power Sight', effect: 'Rarity borders on cards', cost: 200, tier: 2 },
-  { id: 5, name: 'Lucky Start', effect: 'Begin with 1 random Common L1', cost: 250, tier: 2 },
+  { id: 4, name: 'Power Sight', effect: 'Rarity borders and reward tags', cost: 150, tier: 2 },
+  { id: 5, name: 'Lucky Start', effect: 'Choose 1 of 3 Common starting powers', cost: 250, tier: 2 },
   { id: 6, name: 'Bouncy Walls', effect: '95% wall velocity (up from 80%)', cost: 150, tier: 2 },
   { id: 7, name: 'Shard Magnet', effect: '+25% shard earnings, +16px pickup radius', cost: 300, tier: 2 },
   // Tier 3 (requires 3 from Tier 2)
   { id: 8, name: 'Iron Skin', effect: '+1 max HP again (total 5)', cost: 425, tier: 3 },
   { id: 9, name: 'Dash Master', effect: 'Dash cooldown 0.12s (from 0.20s)', cost: 375, tier: 3 },
-  { id: 10, name: 'Rare Luck', effect: '+5% Rare, +3% Epic chance', cost: 500, tier: 3 },
+  { id: 10, name: 'Milestone Luck', effect: 'Milestone and boss reward cards upgrade one tier when possible', cost: 500, tier: 3 },
   { id: 11, name: 'Second Wind', effect: 'Revive once per run with 1 HP', cost: 575, tier: 3 },
   // Tier 4 (requires 3 from Tier 3)
-  { id: 12, name: 'Evolution Sense', effect: 'Evolution recipes shown on cards', cost: 700, tier: 4 },
-  { id: 13, name: 'Starting Arsenal', effect: 'Choose any 1 power at L1', cost: 800, tier: 4 },
+  { id: 12, name: 'Evolution Sense', effect: 'Show evolution recipes and recipe progress on cards', cost: 700, tier: 4 },
+  { id: 13, name: 'Starting Arsenal', effect: 'Choose 1 of 3 Common or Rare starting powers', cost: 900, tier: 4 },
   { id: 14, name: 'Combo King', effect: 'Combo timer 2.5s (from 1.5s)', cost: 600, tier: 4 },
   { id: 15, name: 'Endless Mode', effect: 'Play past Wave 30', cost: 1000, tier: 4 },
 ];
