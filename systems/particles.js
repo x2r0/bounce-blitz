@@ -235,23 +235,59 @@ export function drawMultiPopExplosions() {
 }
 
 export function drawThunderTrails() {
+  if (!G.thunderTrails || G.thunderTrails.length === 0) return;
+
+  const chains = new Map();
   for (const trail of G.thunderTrails) {
-    const progress = 1 - (trail.life / trail.maxLife);
-    ctx.save();
-    ctx.globalAlpha = lerp(0.55, 0, progress);
-    ctx.shadowColor = '#88ccff';
-    ctx.shadowBlur = lerp(18, 0, progress);
-    ctx.fillStyle = 'rgba(136, 204, 255, 0.22)';
-    ctx.beginPath();
-    ctx.arc(trail.x, trail.y, trail.r, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.globalAlpha = lerp(0.9, 0, progress);
-    ctx.strokeStyle = '#d9f1ff';
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.arc(trail.x, trail.y, trail.r * (0.82 + 0.08 * Math.sin(Date.now() / 90)), 0, Math.PI * 2);
-    ctx.stroke();
-    ctx.restore();
+    const key = trail.chain ?? 0;
+    if (!chains.has(key)) chains.set(key, []);
+    chains.get(key).push(trail);
+  }
+
+  for (const nodes of chains.values()) {
+    if (nodes.length === 0) continue;
+    const newest = nodes[nodes.length - 1];
+    const lifeRatio = nodes.reduce((sum, node) => sum + (node.life / node.maxLife), 0) / nodes.length;
+    const coreWidth = Math.max(8, (newest.r || 18) * 1.05);
+    const glowWidth = coreWidth * 1.7;
+
+    if (nodes.length > 1) {
+      ctx.save();
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+      ctx.shadowColor = '#88ccff';
+      ctx.shadowBlur = 18 * lifeRatio;
+      ctx.globalAlpha = 0.22 * lifeRatio;
+      ctx.strokeStyle = '#88ccff';
+      ctx.lineWidth = glowWidth;
+      ctx.beginPath();
+      ctx.moveTo(nodes[0].x, nodes[0].y);
+      for (let i = 1; i < nodes.length; i++) ctx.lineTo(nodes[i].x, nodes[i].y);
+      ctx.stroke();
+      ctx.globalAlpha = 0.58 * lifeRatio;
+      ctx.shadowBlur = 10 * lifeRatio;
+      ctx.strokeStyle = '#d9f1ff';
+      ctx.lineWidth = coreWidth;
+      ctx.beginPath();
+      ctx.moveTo(nodes[0].x, nodes[0].y);
+      for (let i = 1; i < nodes.length; i++) ctx.lineTo(nodes[i].x, nodes[i].y);
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    for (const trail of nodes) {
+      const progress = 1 - (trail.life / trail.maxLife);
+      const radius = trail.r * lerp(0.72, 0.34, progress);
+      ctx.save();
+      ctx.globalAlpha = lerp(0.22, 0, progress);
+      ctx.shadowColor = '#88ccff';
+      ctx.shadowBlur = lerp(12, 0, progress);
+      ctx.fillStyle = '#aee4ff';
+      ctx.beginPath();
+      ctx.arc(trail.x, trail.y, radius, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    }
   }
 }
 

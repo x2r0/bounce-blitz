@@ -36,6 +36,9 @@ export function updatePlayer(dt) {
   if (G.dashAimCancelFlashTimer > 0) G.dashAimCancelFlashTimer -= dt;
   if (G.dashTooltipTimer > 0) G.dashTooltipTimer -= dt;
   if (player.soulHarvestPierceTimer > 0) player.soulHarvestPierceTimer -= dt;
+  if (player.thunderTrailLife > 0) {
+    player.thunderTrailLife = Math.max(0, player.thunderTrailLife - dt);
+  }
 
   // Stamina regen
   if (player.staminaRegenDelay > 0) player.staminaRegenDelay -= dt;
@@ -143,6 +146,23 @@ export function updatePlayer(dt) {
   if (bounced && mag(player.vx, player.vy) > 100) sfxBounce();
 
   const pSpeed = mag(player.vx, player.vy);
+  if (player.thunderTrailLife > 0) {
+    player.thunderTrailSpawnTimer -= dt;
+    const trailDirX = pSpeed > 10 ? player.vx / pSpeed : (player.thunderTrailDirX || 0);
+    const trailDirY = pSpeed > 10 ? player.vy / pSpeed : (player.thunderTrailDirY || 0);
+    const tailOffset = player.r * 0.35;
+    while (player.thunderTrailSpawnTimer <= 0) {
+      G.thunderTrails.push({
+        x: player.x - trailDirX * tailOffset,
+        y: player.y - trailDirY * tailOffset,
+        r: player.thunderTrailRadius || 20,
+        life: player.thunderTrailNodeLife || 0.95,
+        maxLife: player.thunderTrailNodeLife || 0.95,
+        chain: player.thunderTrailChainId || 0,
+      });
+      player.thunderTrailSpawnTimer += player.thunderTrailInterval || 0.024;
+    }
+  }
   if (pSpeed > 200) {
     const trailColor = player.surgeActive ? '#ff4444' :
       (player.overdriveTimer > 0 ? getOverdriveColor() : '#00ffff');

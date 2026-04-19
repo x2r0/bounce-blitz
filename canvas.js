@@ -7,6 +7,10 @@ export const ctx = C.getContext('2d');
 
 C.width = W;
 C.height = H;
+C.tabIndex = 0;
+if (typeof C.setAttribute === 'function') {
+  C.setAttribute('aria-label', 'Bounce Blitz game canvas');
+}
 
 // --- Pre-rendered grid (offscreen canvas) ---
 export const gridCanvas = document.createElement('canvas');

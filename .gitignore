@@ -6,3 +6,5 @@ bounceblitz.zip
 *.zip
 debug-panel.js
 index_test.html
+.DS_Store
+test-results/

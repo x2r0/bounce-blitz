@@ -252,6 +252,13 @@ export function resetGameState() {
     multiPopCharges: 0, multiPopRadius: 0,
     shellGuardOrbs: [],
     thunderTrailSpawnTimer: 0,
+    thunderTrailLife: 0,
+    thunderTrailNodeLife: 0,
+    thunderTrailRadius: 0,
+    thunderTrailInterval: 0.024,
+    thunderTrailDirX: 0,
+    thunderTrailDirY: 0,
+    thunderTrailChainId: 0,
     overdriveTimer: 0, overdriveSpeed: 0, overdrive2x: false,
     soulHarvestPierceTimer: 0,
     // Shield visual

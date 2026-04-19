@@ -50,6 +50,15 @@ function canvasCoords(cx, cy) {
   return { x: (cx - rect.left) / rect.width * W, y: (cy - rect.top) / rect.height * H };
 }
 
+function claimInputFocus() {
+  try { window.focus(); } catch {}
+  if (document.activeElement === C) return;
+  try { C.focus({ preventScroll: true }); }
+  catch {
+    try { C.focus(); } catch {}
+  }
+}
+
 function openSettings(fromState) {
   G._settingsPrevState = fromState;
   G._settingsCursor = 0;
@@ -643,21 +652,26 @@ function performDash(bdx, bdy, t) {
 
   if (player.powers.find(p => p.id === 'thunderDash')) {
     const trailDuration = CHARGE_THUNDER_TRAIL_MIN + (CHARGE_THUNDER_TRAIL_MAX - CHARGE_THUNDER_TRAIL_MIN) * t;
-    const trailLength = 150 + 90 * t;
-    const segmentCount = 6;
-    const segmentRadius = 20 + 4 * t;
+    const segmentRadius = 18 + 4 * t;
+    const trailInterval = Math.max(0.016, 0.026 - 0.006 * t);
     G.thunderTrails = G.thunderTrails || [];
-    for (let i = 0; i < segmentCount; i++) {
-      const progress = segmentCount === 1 ? 0 : i / (segmentCount - 1);
-      G.thunderTrails.push({
-        x: player.x + bdx * trailLength * progress,
-        y: player.y + bdy * trailLength * progress,
-        r: segmentRadius,
-        life: trailDuration,
-        maxLife: trailDuration,
-      });
-    }
-    spawnParticles(player.x + bdx * 40, player.y + bdy * 40, '#88ccff', 10);
+    player.thunderTrailChainId = (player.thunderTrailChainId || 0) + 1;
+    player.thunderTrailSpawnTimer = 0;
+    player.thunderTrailLife = trailDuration;
+    player.thunderTrailNodeLife = trailDuration;
+    player.thunderTrailRadius = segmentRadius;
+    player.thunderTrailInterval = trailInterval;
+    player.thunderTrailDirX = bdx;
+    player.thunderTrailDirY = bdy;
+    G.thunderTrails.push({
+      x: player.x - bdx * player.r * 0.35,
+      y: player.y - bdy * player.r * 0.35,
+      r: segmentRadius,
+      life: trailDuration,
+      maxLife: trailDuration,
+      chain: player.thunderTrailChainId,
+    });
+    spawnParticles(player.x + bdx * 26, player.y + bdy * 26, '#88ccff', 10);
   }
 
   // Time Warp: freeze enemies, duration scaled by charge
@@ -850,6 +864,7 @@ export function getDashProjection() {
 
 export function setupInput() {
   C.addEventListener('mousedown', e => {
+    claimInputFocus();
     e.preventDefault();
     const p = canvasCoords(e.clientX, e.clientY);
     G.mouseX = p.x;
@@ -941,6 +956,7 @@ export function setupInput() {
   });
 
   C.addEventListener('touchstart', e => {
+    claimInputFocus();
     e.preventDefault();
     for (let i = 0; i < e.changedTouches.length; i++) {
       const t = e.changedTouches[i];
@@ -1010,6 +1026,10 @@ export function setupInput() {
       }
     }
   }, { passive: false });
+
+  C.addEventListener('pointerdown', () => {
+    claimInputFocus();
+  }, { passive: true });
 
   C.addEventListener('touchmove', e => {
     e.preventDefault();
