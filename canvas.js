@@ -1,9 +1,10 @@
 'use strict';
 
 import { W, H, FONT } from './config.js';
+import { getFxBlur } from './systems/runtime-flags.js';
 
 export const C = document.getElementById('c');
-export const ctx = C.getContext('2d');
+export const ctx = C.getContext('2d', { alpha: false, desynchronized: true }) || C.getContext('2d');
 
 C.width = W;
 C.height = H;
@@ -47,7 +48,7 @@ export function drawGlowText(text, x, y, font, fillColor, glowColor, glowBlur) {
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   ctx.shadowColor = glowColor;
-  ctx.shadowBlur = glowBlur || 6;
+  ctx.shadowBlur = getFxBlur(glowBlur || 6);
   ctx.shadowOffsetX = 0; ctx.shadowOffsetY = 0;
   ctx.fillStyle = fillColor;
   ctx.fillText(text, x, y);

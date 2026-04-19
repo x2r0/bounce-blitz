@@ -16,6 +16,7 @@ import { sfxBounce, sfxShieldBlock } from '../systems/audio.js';
 import { saveHighScore, saveHardcoreHighScore } from '../systems/save.js';
 import { spawnCombatText } from '../systems/combat-text.js';
 import { POWER_DEFS } from '../systems/powers.js';
+import { FX_AFTERIMAGE_LIMIT, FX_SHOCKWAVE_LIMIT, FX_THUNDER_TRAIL_LIMIT, getFxBlur, pushCapped } from '../systems/runtime-flags.js';
 
 export function updatePlayer(dt) {
   const player = G.player;
@@ -152,14 +153,14 @@ export function updatePlayer(dt) {
     const trailDirY = pSpeed > 10 ? player.vy / pSpeed : (player.thunderTrailDirY || 0);
     const tailOffset = player.r * 0.35;
     while (player.thunderTrailSpawnTimer <= 0) {
-      G.thunderTrails.push({
+      pushCapped(G.thunderTrails, {
         x: player.x - trailDirX * tailOffset,
         y: player.y - trailDirY * tailOffset,
         r: player.thunderTrailRadius || 20,
         life: player.thunderTrailNodeLife || 0.95,
         maxLife: player.thunderTrailNodeLife || 0.95,
         chain: player.thunderTrailChainId || 0,
-      });
+      }, FX_THUNDER_TRAIL_LIMIT);
       player.thunderTrailSpawnTimer += player.thunderTrailInterval || 0.024;
     }
   }
@@ -167,8 +168,8 @@ export function updatePlayer(dt) {
     const trailColor = player.surgeActive ? '#ff4444' :
       (player.overdriveTimer > 0 ? getOverdriveColor() : '#00ffff');
     const maxAlpha = player.surgeActive ? 0.6 : 0.5;
-    G.afterimages.push({ x: player.x, y: player.y, r: player.r, alpha: maxAlpha, life: 0.15,
-      color: trailColor, maxAlpha });
+    pushCapped(G.afterimages, { x: player.x, y: player.y, r: player.r, alpha: maxAlpha, life: 0.15,
+      color: trailColor, maxAlpha }, FX_AFTERIMAGE_LIMIT);
   }
 }
 
@@ -250,7 +251,7 @@ export function damagePlayer(sourceX, sourceY) {
     const reflective = player.powers.find(p => p.id === 'reflectiveShield');
     if (reflective) {
       const burstRadius = 95;
-      G.shockwaves.push({ x: player.x, y: player.y, r: 0, maxR: burstRadius, life: 0.26, maxLife: 0.26, thickness: 8, killsEnemies: true });
+      pushCapped(G.shockwaves, { x: player.x, y: player.y, r: 0, maxR: burstRadius, life: 0.26, maxLife: 0.26, thickness: 8, killsEnemies: true }, FX_SHOCKWAVE_LIMIT);
       const candidates = G.enemies
         .map((enemy, index) => ({ enemy, index, distance: dist(player, enemy) }))
         .filter(({ enemy, distance }) => enemy.alive && !enemy.isBoss && distance < burstRadius)
@@ -355,7 +356,7 @@ export function drawPlayer() {
     ctx.save();
     ctx.fillStyle = 'rgba(255, 221, 0, 0.12)';
     ctx.shadowColor = '#ffdd00';
-    ctx.shadowBlur = 20;
+    ctx.shadowBlur = getFxBlur(20);
     ctx.shadowOffsetX = 0; ctx.shadowOffsetY = 0;
     ctx.beginPath();
     ctx.arc(0, 0, magPulse, 0, Math.PI * 2);
@@ -386,7 +387,7 @@ export function drawPlayer() {
       ctx.save();
       ctx.fillStyle = orbColor;
       ctx.shadowColor = orbColor;
-      ctx.shadowBlur = 8;
+      ctx.shadowBlur = getFxBlur(8);
       ctx.shadowOffsetX = 0; ctx.shadowOffsetY = 0;
       ctx.beginPath();
       ctx.arc(ox, oy, 8, 0, Math.PI * 2);
@@ -431,7 +432,7 @@ export function drawPlayer() {
       ctx.save();
       ctx.fillStyle = '#44ff88';
       ctx.shadowColor = '#44ff88';
-      ctx.shadowBlur = 8;
+      ctx.shadowBlur = getFxBlur(8);
       ctx.shadowOffsetX = 0; ctx.shadowOffsetY = 0;
       ctx.beginPath();
       ctx.arc(sx, sy, 3, 0, Math.PI * 2);
@@ -478,7 +479,7 @@ export function drawPlayer() {
 
   ctx.save();
   ctx.shadowColor = playerGlowColor;
-  ctx.shadowBlur = playerBlur;
+  ctx.shadowBlur = getFxBlur(playerBlur);
   ctx.shadowOffsetX = 0; ctx.shadowOffsetY = 0;
   ctx.strokeStyle = isOverdrive ? getOverdriveColor() : (player.surgeActive ? '#ff4444' : '#00ffff');
   ctx.lineWidth = 2;
@@ -498,7 +499,7 @@ export function drawPlayer() {
       ctx.strokeStyle = '#4488ff';
       ctx.lineWidth = 2;
       ctx.shadowColor = '#4488ff';
-      ctx.shadowBlur = 15;
+      ctx.shadowBlur = getFxBlur(15);
       ctx.shadowOffsetX = 0; ctx.shadowOffsetY = 0;
       ctx.setLineDash([8, 4]);
       ctx.lineDashOffset = player.shieldDashOffset + c * 8;
@@ -514,7 +515,7 @@ export function drawPlayer() {
   if (player.surgeActive && !isOverdrive) {
     ctx.save();
     ctx.shadowColor = '#ff4444';
-    ctx.shadowBlur = 35;
+    ctx.shadowBlur = getFxBlur(35);
     ctx.shadowOffsetX = 0; ctx.shadowOffsetY = 0;
     ctx.fillStyle = '#ff4444';
     ctx.globalAlpha = 0.3;
@@ -536,7 +537,7 @@ export function drawPlayer() {
       // Body glow
       ctx.save();
       ctx.shadowColor = glowColor;
-      ctx.shadowBlur = 20 + 20 * t;
+      ctx.shadowBlur = getFxBlur(20 + 20 * t);
       ctx.shadowOffsetX = 0; ctx.shadowOffsetY = 0;
       ctx.fillStyle = glowColor;
       ctx.globalAlpha = 0.15 + 0.25 * t;
@@ -559,7 +560,7 @@ export function drawPlayer() {
       ctx.lineWidth = 2;
       ctx.globalAlpha = ringAlpha;
       ctx.shadowColor = glowColor;
-      ctx.shadowBlur = 10;
+      ctx.shadowBlur = getFxBlur(10);
       ctx.shadowOffsetX = 0; ctx.shadowOffsetY = 0;
       ctx.beginPath();
       ctx.arc(0, 0, ringRadius, 0, Math.PI * 2);
@@ -574,7 +575,7 @@ export function drawPlayer() {
         ctx.lineWidth = 3;
         ctx.globalAlpha = flashAlpha * 0.8;
         ctx.shadowColor = '#ff4444';
-        ctx.shadowBlur = 12;
+        ctx.shadowBlur = getFxBlur(12);
         ctx.shadowOffsetX = 0; ctx.shadowOffsetY = 0;
         ctx.beginPath();
         ctx.arc(0, 0, ringRadius, 0, Math.PI * 2);
@@ -673,7 +674,7 @@ export function drawPlayer() {
           ctx.fillStyle = glowColor;
           ctx.globalAlpha = 0.3 + 0.5 * t;
           ctx.shadowColor = glowColor;
-          ctx.shadowBlur = 6;
+          ctx.shadowBlur = getFxBlur(6);
           ctx.shadowOffsetX = 0; ctx.shadowOffsetY = 0;
           ctx.beginPath();
           ctx.moveTo(endX, endY - markerSize);
@@ -725,7 +726,7 @@ export function drawPlayer() {
       ctx.lineWidth = CROSSHAIR_STROKE_WIDTH;
       ctx.globalAlpha = 0.6;
       ctx.shadowColor = chargeColor;
-      ctx.shadowBlur = 4;
+      ctx.shadowBlur = getFxBlur(4);
       ctx.shadowOffsetX = 0; ctx.shadowOffsetY = 0;
       // Horizontal arm
       ctx.beginPath();
@@ -745,7 +746,7 @@ export function drawPlayer() {
   if (isOverdrive) {
     ctx.save();
     ctx.shadowColor = getOverdriveColor();
-    ctx.shadowBlur = 40;
+    ctx.shadowBlur = getFxBlur(40);
     ctx.shadowOffsetX = 0; ctx.shadowOffsetY = 0;
     ctx.fillStyle = getOverdriveColor();
     ctx.globalAlpha = 0.3;

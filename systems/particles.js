@@ -4,16 +4,24 @@ import { W, H } from '../config.js';
 import { rand, lerp } from '../utils.js';
 import { G } from '../state.js';
 import { ctx } from '../canvas.js';
+import {
+  FX_PARTICLE_LIMIT,
+  FX_WALL_FLASH_LIMIT,
+  REDUCED_FX,
+  getFxBlur,
+  pushCapped,
+} from './runtime-flags.js';
 
 // --- Particle Spawning ---
 export function spawnParticles(x, y, color, count) {
   for (let i = 0; i < count; i++) {
-    if (G.particles.length >= 100) G.particles.shift();
     const angle = rand(0, Math.PI * 2);
     const speed = rand(200, 400);
     const r = rand(3, 6);
-    G.particles.push({ x, y, vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed,
-      r, initR: r, color, alpha: 1, life: 0.4, maxLife: 0.4 });
+    pushCapped(G.particles, {
+      x, y, vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed,
+      r, initR: r, color, alpha: 1, life: 0.4, maxLife: 0.4,
+    }, FX_PARTICLE_LIMIT);
   }
 }
 
@@ -30,7 +38,9 @@ export function addWallFlash(x, y, wall, color) {
     x1 = wx; y1 = y - span; x2 = wx; y2 = y + span;
     nx = wall === 'left' ? 1 : -1; ny = 0;
   }
-  G.wallFlashes.push({ x1, y1, x2, y2, cx: x, cy: y, nx, ny, wall, color, alpha: 1, life: 0.35, maxLife: 0.35 });
+  pushCapped(G.wallFlashes, {
+    x1, y1, x2, y2, cx: x, cy: y, nx, ny, wall, color, alpha: 1, life: 0.35, maxLife: 0.35,
+  }, FX_WALL_FLASH_LIMIT);
 }
 
 // --- Update Functions ---
@@ -166,14 +176,14 @@ export function drawWallFlashes() {
     ctx.strokeStyle = f.color;
     ctx.lineWidth = 6;
     ctx.shadowColor = f.color;
-    ctx.shadowBlur = 28;
+    ctx.shadowBlur = getFxBlur(28);
     ctx.shadowOffsetX = 0; ctx.shadowOffsetY = 0;
     ctx.beginPath();
     ctx.moveTo(f.x1, f.y1);
     ctx.lineTo(f.x2, f.y2);
     ctx.stroke();
     ctx.lineWidth = 2;
-    ctx.shadowBlur = 40;
+    ctx.shadowBlur = getFxBlur(40);
     ctx.stroke();
     ctx.restore();
   }
@@ -186,7 +196,7 @@ export function drawParticles() {
     ctx.globalAlpha = p.alpha;
     ctx.fillStyle = p.color;
     ctx.shadowColor = p.color;
-    ctx.shadowBlur = 10 * p.alpha;
+    ctx.shadowBlur = getFxBlur(10 * p.alpha);
     ctx.shadowOffsetX = 0; ctx.shadowOffsetY = 0;
     ctx.beginPath();
     ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
@@ -203,7 +213,7 @@ export function drawCollectRings() {
     ctx.strokeStyle = r.color;
     ctx.lineWidth = lerp(3, 0.5, progress);
     ctx.shadowColor = r.color;
-    ctx.shadowBlur = lerp(12, 0, progress);
+    ctx.shadowBlur = getFxBlur(lerp(12, 0, progress));
     ctx.shadowOffsetX = 0; ctx.shadowOffsetY = 0;
     ctx.beginPath();
     ctx.arc(r.x, r.y, r.r, 0, Math.PI * 2);
@@ -217,7 +227,7 @@ export function drawMultiPopExplosions() {
     const progress = 1 - (e.life / e.maxLife);
     ctx.save();
     ctx.shadowColor = '#44ff88';
-    ctx.shadowBlur = lerp(20, 0, progress);
+    ctx.shadowBlur = getFxBlur(lerp(20, 0, progress));
     ctx.shadowOffsetX = 0; ctx.shadowOffsetY = 0;
     ctx.globalAlpha = lerp(0.3, 0, progress);
     ctx.fillStyle = 'rgba(68, 255, 136, 0.3)';
@@ -256,7 +266,7 @@ export function drawThunderTrails() {
       ctx.lineCap = 'round';
       ctx.lineJoin = 'round';
       ctx.shadowColor = '#88ccff';
-      ctx.shadowBlur = 18 * lifeRatio;
+      ctx.shadowBlur = getFxBlur(18 * lifeRatio);
       ctx.globalAlpha = 0.22 * lifeRatio;
       ctx.strokeStyle = '#88ccff';
       ctx.lineWidth = glowWidth;
@@ -265,7 +275,7 @@ export function drawThunderTrails() {
       for (let i = 1; i < nodes.length; i++) ctx.lineTo(nodes[i].x, nodes[i].y);
       ctx.stroke();
       ctx.globalAlpha = 0.58 * lifeRatio;
-      ctx.shadowBlur = 10 * lifeRatio;
+      ctx.shadowBlur = getFxBlur(10 * lifeRatio);
       ctx.strokeStyle = '#d9f1ff';
       ctx.lineWidth = coreWidth;
       ctx.beginPath();
@@ -275,13 +285,15 @@ export function drawThunderTrails() {
       ctx.restore();
     }
 
+    if (REDUCED_FX) continue;
+
     for (const trail of nodes) {
       const progress = 1 - (trail.life / trail.maxLife);
       const radius = trail.r * lerp(0.72, 0.34, progress);
       ctx.save();
       ctx.globalAlpha = lerp(0.22, 0, progress);
       ctx.shadowColor = '#88ccff';
-      ctx.shadowBlur = lerp(12, 0, progress);
+      ctx.shadowBlur = getFxBlur(lerp(12, 0, progress));
       ctx.fillStyle = '#aee4ff';
       ctx.beginPath();
       ctx.arc(trail.x, trail.y, radius, 0, Math.PI * 2);
@@ -299,7 +311,7 @@ export function drawShockwaves() {
     ctx.strokeStyle = '#cc66ff';
     ctx.lineWidth = 8;
     ctx.shadowColor = '#dd88ff';
-    ctx.shadowBlur = lerp(8, 0, progress);
+    ctx.shadowBlur = getFxBlur(lerp(8, 0, progress));
     ctx.shadowOffsetX = 0; ctx.shadowOffsetY = 0;
     ctx.beginPath();
     ctx.arc(s.x, s.y, s.r, 0, Math.PI * 2);
@@ -313,7 +325,7 @@ export function drawAfterimages() {
     ctx.save();
     ctx.globalAlpha = a.alpha;
     ctx.shadowColor = a.color;
-    ctx.shadowBlur = 10;
+    ctx.shadowBlur = getFxBlur(10);
     ctx.shadowOffsetX = 0; ctx.shadowOffsetY = 0;
     ctx.fillStyle = a.color;
     ctx.beginPath();
@@ -336,7 +348,7 @@ export function drawJoystick() {
     ctx.globalAlpha = 0.35;
     ctx.fillStyle = '#00ffff';
     ctx.shadowColor = '#00ffff';
-    ctx.shadowBlur = 8;
+    ctx.shadowBlur = getFxBlur(8);
     ctx.shadowOffsetX = 0; ctx.shadowOffsetY = 0;
     ctx.beginPath();
     ctx.arc(G.joystick.cx + G.joystick.dx, G.joystick.cy + G.joystick.dy, 14, 0, Math.PI * 2);

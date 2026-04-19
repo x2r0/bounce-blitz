@@ -11,6 +11,7 @@ let _muted = false;
 let _volume = 0.5;
 let _musicVolume = 0.5;
 let _sfxVolume = 0.5;
+const _noiseBufferCache = new Map();
 
 function ensureCtx() {
   if (audioCtx) return audioCtx;
@@ -66,6 +67,16 @@ export function getSfxVolume() { return _sfxVolume; }
 export function isMuted() { return _muted; }
 
 // --- Helper: play a tone ---
+function _disconnectNode(node) {
+  if (!node) return;
+  try { node.disconnect(); } catch (e) { /* already disconnected */ }
+}
+
+function _cleanupNodes(nodes) {
+  if (!nodes) return;
+  for (const node of nodes) _disconnectNode(node);
+}
+
 function playTone(freq, type, duration, volume, dest) {
   const ctx = ensureCtx();
   const osc = ctx.createOscillator();
@@ -76,24 +87,33 @@ function playTone(freq, type, duration, volume, dest) {
   gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + duration);
   osc.connect(gain);
   gain.connect(dest || sfxGain);
+  osc.onended = () => _cleanupNodes([osc, gain]);
   osc.start(ctx.currentTime);
   osc.stop(ctx.currentTime + duration);
 }
 
 // --- Helper: noise burst ---
+function _getNoiseBuffer(ctx, duration) {
+  const sampleCount = Math.max(1, Math.ceil(ctx.sampleRate * duration));
+  const key = `${ctx.sampleRate}:${sampleCount}`;
+  if (_noiseBufferCache.has(key)) return _noiseBufferCache.get(key);
+  const buffer = ctx.createBuffer(1, sampleCount, ctx.sampleRate);
+  const data = buffer.getChannelData(0);
+  for (let i = 0; i < sampleCount; i++) data[i] = Math.random() * 2 - 1;
+  _noiseBufferCache.set(key, buffer);
+  return buffer;
+}
+
 function playNoise(duration, volume, filterFreq, filterType, dest) {
   const ctx = ensureCtx();
-  const bufferSize = ctx.sampleRate * duration;
-  const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
-  const data = buffer.getChannelData(0);
-  for (let i = 0; i < bufferSize; i++) data[i] = Math.random() * 2 - 1;
   const source = ctx.createBufferSource();
-  source.buffer = buffer;
+  source.buffer = _getNoiseBuffer(ctx, duration);
   const gain = ctx.createGain();
   gain.gain.setValueAtTime(volume || 0.2, ctx.currentTime);
   gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + duration);
+  let filter = null;
   if (filterFreq) {
-    const filter = ctx.createBiquadFilter();
+    filter = ctx.createBiquadFilter();
     filter.type = filterType || 'lowpass';
     filter.frequency.value = filterFreq;
     source.connect(filter);
@@ -102,6 +122,7 @@ function playNoise(duration, volume, filterFreq, filterType, dest) {
     source.connect(gain);
   }
   gain.connect(dest || sfxGain);
+  source.onended = () => _cleanupNodes(filter ? [source, filter, gain] : [source, gain]);
   source.start(ctx.currentTime);
   source.stop(ctx.currentTime + duration);
 }
@@ -128,6 +149,7 @@ export function sfxDash() {
   gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.1);
   osc.connect(gain);
   gain.connect(sfxGain);
+  osc.onended = () => _cleanupNodes([osc, gain]);
   osc.start(ctx.currentTime);
   osc.stop(ctx.currentTime + 0.1);
   _reactToAction('dash');
@@ -247,6 +269,7 @@ export function sfxBossPhaseTransition() {
   gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.6);
   osc.connect(gain);
   gain.connect(sfxGain);
+  osc.onended = () => _cleanupNodes([osc, gain]);
   osc.start(ctx.currentTime);
   osc.stop(ctx.currentTime + 0.6);
   playNoise(0.4, 0.1, 1500, 'lowpass');
@@ -278,6 +301,7 @@ export function sfxGameOver() {
   gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 1.0);
   osc.connect(gain);
   gain.connect(sfxGain);
+  osc.onended = () => _cleanupNodes([osc, gain]);
   osc.start(ctx.currentTime);
   osc.stop(ctx.currentTime + 1.0);
   playNoise(0.3, 0.08, 600, 'lowpass');
@@ -841,6 +865,7 @@ function _playMusicAccent(freq, dur, vol, delay, prominent) {
   filter.connect(gain);
   // Prominent accents route through sfxGain (louder, cuts through)
   gain.connect(prominent ? sfxGain : (_outputGain || musicGain));
+  osc.onended = () => _cleanupNodes([osc, filter, gain]);
   osc.start(t);
   osc.stop(t + dur + 0.01);
 }
@@ -1133,6 +1158,7 @@ function _createOsc(type, freq, dest) {
 function _stopOsc(voice) {
   if (!voice) return;
   try { voice.osc.stop(); } catch (e) { /* already stopped */ }
+  _cleanupNodes([voice.osc, voice.gain]);
   voice.osc = null;
   voice.gain = null;
 }

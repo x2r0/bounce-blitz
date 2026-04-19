@@ -11,6 +11,7 @@ import { getPlayerPower, getPlayerPowerLevel, POWER_DEFS, tryLifeSteal } from '.
 import { spawnCombatText } from '../systems/combat-text.js';
 import { sfxShieldBreak, sfxMultiPop, sfxBeamDeflect } from '../systems/audio.js';
 import { applyBeamDamageToPillar, cleanupDestroyedPillar } from '../systems/arena.js';
+import { FX_PARTICLE_LIMIT, FX_SHOCKWAVE_LIMIT, REDUCED_FX, getFxBlur, pushCapped } from '../systems/runtime-flags.js';
 
 // --- Spawn helpers ---
 function spawnPosEdge(player) {
@@ -461,7 +462,9 @@ export function updateEnemies(dt) {
       e.pulseTimer -= eDt;
       if (e.pulseTimer <= 0) {
         e.pulseTimer = 3.5;
-        G.shockwaves.push({ x: e.x, y: e.y, r: 0, maxR: 170, life: 1.0, maxLife: 1.0, thickness: 8 });
+        pushCapped(G.shockwaves, {
+          x: e.x, y: e.y, r: 0, maxR: 170, life: 1.0, maxLife: 1.0, thickness: 8
+        }, FX_SHOCKWAVE_LIMIT);
       }
     } else if (e.type === 'teleporter') {
       updateTeleporter(e, eDt, player);
@@ -796,15 +799,14 @@ function segOBBIntersect(ax, ay, bx, by, fb) {
 function spawnBeamImpactSparks(x, y) {
   const count = 6 + Math.floor(Math.random() * 5);
   for (let i = 0; i < count; i++) {
-    if (G.particles.length >= 100) G.particles.shift();
     const angle = Math.random() * Math.PI * 2;
     const speed = 80 + Math.random() * 70;
     const life = 0.15 + Math.random() * 0.1;
-    G.particles.push({
+    pushCapped(G.particles, {
       x, y,
       vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed,
       r: 2, initR: 2, color: '#ffffff', alpha: 1, life, maxLife: life,
-    });
+    }, FX_PARTICLE_LIMIT);
   }
 }
 
@@ -850,7 +852,7 @@ export function drawEnemies() {
       ctx.strokeStyle = '#ff2200';
       ctx.lineWidth = 6;
       ctx.shadowColor = '#ff0000';
-      ctx.shadowBlur = 8;
+      ctx.shadowBlur = getFxBlur(8);
       ctx.globalAlpha = beam.timer / 0.3;
       ctx.beginPath();
       ctx.moveTo(beam.sx, beam.sy);
@@ -900,7 +902,7 @@ export function drawEnemies() {
       ctx.globalAlpha = 0.3 * (1 - progress);
       ctx.fillStyle = '#8844aa';
       ctx.shadowColor = '#8844aa';
-      ctx.shadowBlur = 12;
+      ctx.shadowBlur = getFxBlur(REDUCED_FX ? 7 : 12);
       ctx.beginPath();
       ctx.arc(well.x, well.y, well.radius * (0.5 + progress * 0.5), 0, Math.PI * 2);
       ctx.fill();
@@ -958,7 +960,7 @@ function drawSingleEnemy(e) {
     ctx.globalAlpha = flashRate;
     ctx.fillStyle = e.fuseTimer < 0.3 ? '#ffffff' : '#ff2200';
     ctx.shadowColor = '#ff0000';
-    ctx.shadowBlur = 16;
+    ctx.shadowBlur = getFxBlur(16);
     ctx.beginPath();
     ctx.arc(0, 0, e.r, 0, Math.PI * 2);
     ctx.fill();
@@ -998,7 +1000,7 @@ function drawSingleEnemy(e) {
     ctx.fillStyle = e.color;
     ctx.shadowColor = e.glowColor;
   }
-  ctx.shadowBlur = e.shadowBlur * spawnBlurMul * farBlurMul;
+  ctx.shadowBlur = getFxBlur(e.shadowBlur * spawnBlurMul * farBlurMul);
   ctx.shadowOffsetX = 0; ctx.shadowOffsetY = 0;
 
   // Teleporter flicker: subtle shimmer at all times, stronger during telegraph
@@ -1049,7 +1051,7 @@ function drawSingleEnemy(e) {
     ctx.globalAlpha = 0.3 * (1 - progress);
     ctx.strokeStyle = e.glowColor;
     ctx.lineWidth = 3 - progress * 2;
-    ctx.shadowBlur = e.shadowBlur * 0.5;
+    ctx.shadowBlur = getFxBlur(e.shadowBlur * 0.5);
     ctx.beginPath();
     ctx.arc(0, 0, e.r + 8 + progress * 30, 0, Math.PI * 2);
     ctx.stroke();
@@ -1076,11 +1078,11 @@ function drawSingleEnemy(e) {
     const sparkPulse = 0.5 + 0.5 * Math.sin(Date.now() * 0.02);
     ctx.fillStyle = '#ffdd00';
     ctx.shadowColor = '#ffdd00';
-    ctx.shadowBlur = 4 + sparkPulse * 4;
+    ctx.shadowBlur = getFxBlur(4 + sparkPulse * 4);
     ctx.beginPath();
     ctx.arc(fuseJitter * 0.3 + 2, -e.r - 8, 1.5 + sparkPulse * 0.5, 0, Math.PI * 2);
     ctx.fill();
-    ctx.shadowBlur = e.shadowBlur * spawnBlurMul;
+    ctx.shadowBlur = getFxBlur(e.shadowBlur * spawnBlurMul);
     // "!" marker
     ctx.fillStyle = '#000000';
     ctx.globalAlpha = 0.6;
@@ -1127,7 +1129,7 @@ function drawSingleEnemy(e) {
       : 1;
     ctx.fillStyle = '#ff0044';
     ctx.shadowColor = '#ff0044';
-    ctx.shadowBlur = 4 + eyePulse * 8;
+    ctx.shadowBlur = getFxBlur(4 + eyePulse * 8);
     ctx.beginPath();
     ctx.arc(0, 0, 1.5 + eyePulse * 1, 0, Math.PI * 2);
     ctx.fill();
@@ -1201,7 +1203,7 @@ function drawSingleEnemy(e) {
     ctx.stroke();
     // Center glow dot
     ctx.fillStyle = coreColor;
-    ctx.shadowBlur = 20;
+    ctx.shadowBlur = getFxBlur(20);
     ctx.beginPath();
     ctx.arc(0, 0, 5, 0, Math.PI * 2);
     ctx.fill();
@@ -1277,7 +1279,7 @@ function drawSingleEnemy(e) {
     ctx.globalAlpha = 0.4;
     ctx.fillStyle = '#88ddff';
     ctx.shadowColor = '#88ddff';
-    ctx.shadowBlur = 12;
+    ctx.shadowBlur = getFxBlur(12);
     ctx.beginPath();
     ctx.arc(0, 0, e.r + 2, 0, Math.PI * 2);
     ctx.fill();
@@ -1292,6 +1294,17 @@ function drawSingleEnemy(e) {
     ctx.save();
     ctx.translate(e.x, e.y);
 
+    if (REDUCED_FX) {
+      ctx.globalAlpha = Math.max(0.32, pulse * 0.95);
+      ctx.strokeStyle = '#44ddff';
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      drawHexagonPath(0, 0, shieldR);
+      ctx.stroke();
+      ctx.restore();
+      return;
+    }
+
     // Inner hex fill (translucent)
     ctx.globalAlpha = pulse * 0.3;
     ctx.fillStyle = '#44ddff';
@@ -1304,7 +1317,7 @@ function drawSingleEnemy(e) {
     ctx.strokeStyle = '#44ddff';
     ctx.lineWidth = 2;
     ctx.shadowColor = '#44ddff';
-    ctx.shadowBlur = 10;
+    ctx.shadowBlur = getFxBlur(10);
     ctx.shadowOffsetX = 0; ctx.shadowOffsetY = 0;
     ctx.beginPath();
     drawHexagonPath(0, 0, shieldR);

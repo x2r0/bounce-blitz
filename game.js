@@ -39,6 +39,7 @@ import { updateCombatTexts, drawCombatTexts } from './systems/combat-text.js';
 import { POWER_DEFS, EVOLUTION_RECIPES, BOSS_SIGIL_DEFS, generateOffering, checkEvolutionAvailable, createEvolutionCard, applyPowerPick, applyWaveStartPowers, resetWaveCounters } from './systems/powers.js';
 import { getPowerSelectConfig } from './systems/power-select-config.js';
 import { getRewardContextForWave } from './systems/reward-context.js';
+import { FX_AFTERIMAGE_LIMIT, FX_AMBIENT_PARTICLE_SCALE, FX_AMBIENT_SHAPE_COUNT, pushCapped } from './systems/runtime-flags.js';
 import {
   TRANSITION_REWARD_COPY,
   EPILOGUE_REVEAL_LINES,
@@ -907,7 +908,7 @@ function updateStoryIntroPlayer(intro, dt) {
   player.x += player.vx * dt;
   player.y += player.vy * dt;
   if (player.dashGraceTimer > 0 && Math.sqrt(player.vx * player.vx + player.vy * player.vy) > 220) {
-    G.afterimages.push({
+    pushCapped(G.afterimages, {
       x: player.x,
       y: player.y,
       r: player.r,
@@ -915,7 +916,7 @@ function updateStoryIntroPlayer(intro, dt) {
       life: 0.10,
       color: '#78eaff',
       maxAlpha: 0.42,
-    });
+    }, FX_AFTERIMAGE_LIMIT);
   }
   player.x = Math.max(player.r + 18, Math.min(W - player.r - 18, player.x));
   player.y = Math.max(player.r + 18, Math.min(H - player.r - 18, player.y));
@@ -1285,8 +1286,9 @@ function initAmbientParticles(wave) {
   const arc = getStageArc(wave);
   const p = arc.particles;
   const tintColor = typeof arc.tintColor === 'function' ? arc.tintColor(wave) : arc.tintColor;
+  const targetCount = Math.max(4, Math.round(p.count * FX_AMBIENT_PARTICLE_SCALE));
   G.ambientParticles = [];
-  for (let i = 0; i < p.count; i++) {
+  for (let i = 0; i < targetCount; i++) {
     G.ambientParticles.push(spawnAmbientParticle(p, tintColor, true));
   }
 }
@@ -1332,6 +1334,7 @@ function updateAmbientParticles(dt) {
   const arc = getStageArc(G.wave);
   const pDef = arc.particles;
   const tintColor = typeof arc.tintColor === 'function' ? arc.tintColor(G.wave) : arc.tintColor;
+  const targetCount = Math.max(4, Math.round(pDef.count * FX_AMBIENT_PARTICLE_SCALE));
   for (let i = G.ambientParticles.length - 1; i >= 0; i--) {
     const p = G.ambientParticles[i];
     p.x += p.vx * dt;
@@ -1353,10 +1356,10 @@ function updateAmbientParticles(dt) {
     }
   }
   // Maintain target count
-  while (G.ambientParticles.length < pDef.count) {
+  while (G.ambientParticles.length < targetCount) {
     G.ambientParticles.push(spawnAmbientParticle(pDef, tintColor, false));
   }
-  while (G.ambientParticles.length > pDef.count) {
+  while (G.ambientParticles.length > targetCount) {
     G.ambientParticles.pop();
   }
 }
@@ -1415,7 +1418,7 @@ function updateParallaxDots(dt) {
 }
 
 // --- Ambient Background Shapes (slow-moving depth layer, per arc) ---
-const AMBIENT_SHAPE_COUNT = 4; // 3-5 range, using 4 as baseline
+const AMBIENT_SHAPE_COUNT = FX_AMBIENT_SHAPE_COUNT;
 
 function initAmbientShapes(wave) {
   const arc = getStageArc(wave);
@@ -2268,10 +2271,10 @@ function update(dt) {
     if (G.waveTransitionOffset > 0 && G.player) {
       const trailColor = G.player.surgeActive ? '#ff4444' :
         (G.player.overdriveTimer > 0 ? '#ff0000' : '#00ffff');
-      G.afterimages.push({
+      pushCapped(G.afterimages, {
         x: G.player.x, y: G.player.y - G.waveTransitionOffset,
         r: G.player.r, alpha: 0.5, life: 0.15, color: trailColor, maxAlpha: 0.5
-      });
+      }, FX_AFTERIMAGE_LIMIT);
     }
     updateWallFlashes(dt); updateCollectRings(dt); updateMultiPopExplosions(dt);
     updateTapBounceRipples(dt); updateCombatTexts(dt);

@@ -21,6 +21,7 @@ import { isFreeDash } from './lootcrate.js';
 import { hitEnemy, killEnemy } from '../entities/enemy.js';
 import { dist } from '../utils.js';
 import { spawnParticles } from './particles.js';
+import { FX_THUNDER_TRAIL_LIMIT, pushCapped } from './runtime-flags.js';
 import { ensureTitleMusicStarted, sfxDash, sfxUIClick, sfxCardPick, startMusic, stopMusic, setBossMusic, setMusicState,
   getMusicVolume, getSfxVolume, isMuted, setMusicVolume, setSfxVolume, toggleMute } from './audio.js';
 import { saveRunState, hasSavedRun, clearRunState, saveSettings } from './save.js';
@@ -663,14 +664,14 @@ function performDash(bdx, bdy, t) {
     player.thunderTrailInterval = trailInterval;
     player.thunderTrailDirX = bdx;
     player.thunderTrailDirY = bdy;
-    G.thunderTrails.push({
+    pushCapped(G.thunderTrails, {
       x: player.x - bdx * player.r * 0.35,
       y: player.y - bdy * player.r * 0.35,
       r: segmentRadius,
       life: trailDuration,
       maxLife: trailDuration,
       chain: player.thunderTrailChainId,
-    });
+    }, FX_THUNDER_TRAIL_LIMIT);
     spawnParticles(player.x + bdx * 26, player.y + bdy * 26, '#88ccff', 10);
   }
 
