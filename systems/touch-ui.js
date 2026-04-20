@@ -371,6 +371,7 @@ function ensureTouchUI() {
       pointer-events: auto;
       box-shadow: 0 10px 30px rgba(0,0,0,0.18);
       padding: 0 16px;
+      z-index: 6;
     }
     .bb-touch-orientation {
       position: absolute;
@@ -456,8 +457,13 @@ function ensureTouchUI() {
     #bb-touch-pause {
       right: calc(12px + env(safe-area-inset-right, 0px));
       display: none;
-      font-size: 24px;
-      padding: 0;
+      min-width: 92px;
+      font-size: 16px;
+      font-weight: 800;
+      color: #f5f1ff;
+      background: linear-gradient(180deg, rgba(112, 75, 255, 0.96), rgba(84, 48, 215, 0.94));
+      border-color: rgba(198, 184, 255, 0.52);
+      box-shadow: 0 14px 34px rgba(60, 28, 160, 0.34);
     }
     .bb-touch-back-arrow {
       font-size: 20px;
@@ -484,7 +490,7 @@ function ensureTouchUI() {
     <button id="bb-touch-back" class="bb-touch-corner-btn" aria-label="Back">
       <span class="bb-touch-back-arrow">‹</span><span id="bb-touch-back-label">Back</span>
     </button>
-    <button id="bb-touch-pause" class="bb-touch-corner-btn" aria-label="Pause game">||</button>
+    <button id="bb-touch-pause" class="bb-touch-corner-btn" aria-label="Pause game">Pause</button>
     <div id="bb-touch-left-hint" class="bb-touch-hint">
       <h4>Move</h4>
       <p>Left thumb joystick</p>
@@ -737,7 +743,9 @@ export function syncTouchOverlay() {
     setStickVisual(leftBase, leftThumb, G.joystick.active ? G.joystick : idleLeft, G.joystick.active ? 'active' : 'idle');
     setStickVisual(rightBase, rightThumb, null);
   } else if (mode === 'intro_dash' || mode === 'tutorial') {
-    setStickVisual(leftBase, leftThumb, G.joystick.active ? G.joystick : idleLeft, G.joystick.active ? 'active' : 'idle');
+    const introLeftState = mode === 'intro_dash' ? idleLeft : (G.joystick.active ? G.joystick : idleLeft);
+    const introLeftVisibility = mode === 'intro_dash' ? 'idle' : (G.joystick.active ? 'active' : 'idle');
+    setStickVisual(leftBase, leftThumb, introLeftState, introLeftVisibility);
     setStickVisual(rightBase, rightThumb, G.dashStick.active ? G.dashStick : idleRight, G.dashStick.active ? 'active' : 'idle');
   } else if (inGameplay) {
     setStickVisual(leftBase, leftThumb, G.joystick.active ? G.joystick : idleLeft, G.joystick.active ? 'active' : 'idle');

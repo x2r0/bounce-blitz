@@ -481,6 +481,7 @@ export function advanceStoryIntro() {
     return;
   }
   if (intro.beat === 2) {
+    clearTouchSticks();
     intro.beat = 3;
     intro.beatStartedAt = intro.timer;
     intro.canAdvance = false;
@@ -488,6 +489,7 @@ export function advanceStoryIntro() {
     return;
   }
   if (intro.beat === 3) {
+    clearTouchSticks();
     intro.beat = 4;
     intro.beatStartedAt = intro.timer;
     intro.canAdvance = false;
@@ -928,6 +930,7 @@ function updateStoryIntroPlayer(intro, dt) {
   player.y = Math.max(player.r + 18, Math.min(H - player.r - 18, player.y));
 
   if (intro.beat === 1 && player.x >= W * 0.47) {
+    clearTouchSticks();
     intro.beat = 2;
     intro.beatStartedAt = intro.timer;
     intro.canAdvance = false;

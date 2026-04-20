@@ -151,6 +151,17 @@ function clearMoveStick() {
   G.joystick.dy = 0;
 }
 
+function beginStoryIntroDashStick(identifier, clientX, clientY) {
+  G.dashStick.active = true;
+  G.dashStick.touchId = identifier;
+  G.dashStick.cx = clientX;
+  G.dashStick.cy = clientY;
+  G.dashStick.tx = clientX;
+  G.dashStick.ty = clientY;
+  G.dashStick.dx = 0;
+  G.dashStick.dy = 0;
+}
+
 function beginDashStick(identifier, clientX, clientY) {
   if (!startDashCharge()) return false;
   G.dashStick.active = true;
@@ -981,9 +992,13 @@ function startDashCharge() {
   return true;
 }
 
-function releaseDashCharge() {
+function releaseDashCharge(source = 'generic', touchId = null) {
   const player = G.player;
   if (!player.dashCharging) return;
+  if (isTouchUILayout() && player.dashChargeExhausted && player.dashChargeTouchId !== null) {
+    const matchingTouchRelease = source === 'touch' && touchId === player.dashChargeTouchId;
+    if (!matchingTouchRelease) return;
+  }
   // Only execute dash during active gameplay states
   if (G.state !== STATE.PLAYING && G.state !== STATE.BOSS_FIGHT && G.state !== STATE.WAVE_BREAK) {
     cancelDashCharge(true);
@@ -1252,10 +1267,14 @@ export function setupInput() {
         return;
       }
       if (G.state === STATE.STORY_INTRO) {
-        if ((G.storyIntro?.beat === 1 || G.storyIntro?.beat === 3) && isLeftHalf && !G.joystick.active) {
+        if (G.storyIntro?.beat === 1 && isLeftHalf && !G.joystick.active) {
           beginMoveStick(t.identifier, t.clientX, t.clientY);
         } else if (G.storyIntro?.beat === 3 && !isLeftHalf) {
-          import('../game.js').then(m => m.startStoryIntroDashCharge(t.identifier));
+          import('../game.js').then(m => {
+            if (m.startStoryIntroDashCharge(t.identifier)) {
+              beginStoryIntroDashStick(t.identifier, t.clientX, t.clientY);
+            }
+          });
         } else {
           import('../game.js').then(m => m.advanceStoryIntro());
         }
@@ -1342,11 +1361,12 @@ export function setupInput() {
       }
       if (G.state === STATE.STORY_INTRO && G.storyIntro?.player?.dashCharging &&
           t.identifier === G.storyIntro.player.dashChargeTouchId) {
+        clearDashStick();
         import('../game.js').then(m => m.releaseStoryIntroDashCharge());
       }
       // Release dash charge on finger lift
       if (G.player && G.player.dashCharging && t.identifier === G.player.dashChargeTouchId) {
-        releaseDashCharge();
+        releaseDashCharge('touch', t.identifier);
       }
     }
   });
@@ -1370,6 +1390,7 @@ export function setupInput() {
       }
       if (G.state === STATE.STORY_INTRO && G.storyIntro?.player?.dashCharging &&
           t.identifier === G.storyIntro.player.dashChargeTouchId) {
+        clearDashStick();
         import('../game.js').then(m => m.cancelStoryIntroDashCharge());
       }
       // Cancel dash charge on touch cancel (refund drain, not initial cost)
@@ -1743,7 +1764,7 @@ export function setupInput() {
     }
     // Release dash charge on Space up
     if (key === ' ' && G.player && G.player.dashCharging) {
-      releaseDashCharge();
+      releaseDashCharge('keyboard');
     }
   });
 }
