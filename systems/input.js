@@ -22,6 +22,7 @@ import { hitEnemy, killEnemy } from '../entities/enemy.js';
 import { dist } from '../utils.js';
 import { spawnParticles } from './particles.js';
 import { FX_THUNDER_TRAIL_LIMIT, pushCapped } from './runtime-flags.js';
+import { stepDashChargeState } from './dash-charge-state.js';
 import { ensureTitleMusicStarted, sfxDash, sfxUIClick, sfxCardPick, startMusic, stopMusic, setBossMusic, setMusicState,
   getMusicVolume, getSfxVolume, isMuted, setMusicVolume, setSfxVolume, toggleMute } from './audio.js';
 import { saveRunState, hasSavedRun, clearRunState, saveSettings } from './save.js';
@@ -846,6 +847,7 @@ function performDash(bdx, bdy, t) {
   player.dashCharging = false;
   player.dashChargeTime = 0;
   player.dashChargeStaminaDrained = 0;
+  player.dashChargeExhausted = false;
   player.dashChargeTouchId = null;
   clearDashStick();
 
@@ -974,6 +976,7 @@ function startDashCharge() {
   player.dashCharging = true;
   player.dashChargeTime = 0;
   player.dashChargeStaminaDrained = 0;
+  player.dashChargeExhausted = false;
   player.stamina -= initialCost;
   return true;
 }
@@ -998,6 +1001,7 @@ function releaseDashCharge() {
     player.dashCharging = false;
     player.dashChargeTime = 0;
     player.dashChargeStaminaDrained = 0;
+    player.dashChargeExhausted = false;
     player.dashChargeTouchId = null;
     clearDashStick();
     // Red ring flash for aim cancel
@@ -1019,6 +1023,7 @@ export function cancelDashCharge(refundDrain) {
   player.dashCharging = false;
   player.dashChargeTime = 0;
   player.dashChargeStaminaDrained = 0;
+  player.dashChargeExhausted = false;
   player.dashChargeTouchId = null;
   clearDashStick();
 }
@@ -1028,21 +1033,9 @@ export function updateDashCharge(dt) {
   const player = G.player;
   if (!player.dashCharging) return;
 
-  player.dashChargeTime += dt;
-
-  // Continuous stamina drain
-  const drainRate = getDrainRate();
-  const drainAmount = drainRate * dt;
-  if (drainAmount > 0) {
-    player.stamina -= drainAmount;
-    player.dashChargeStaminaDrained += drainAmount;
-  }
-
-  // Auto-release when stamina hits 0
-  if (player.stamina <= 0) {
-    player.stamina = 0;
+  const exhaustedThisFrame = stepDashChargeState(player, dt, getDrainRate());
+  if (exhaustedThisFrame) {
     player.staminaFlashTimer = 0.3;
-    releaseDashCharge();
   }
 }
 

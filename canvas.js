@@ -5,12 +5,38 @@ import { getFxBlur } from './systems/runtime-flags.js';
 
 export const C = document.getElementById('c');
 export const ctx = C.getContext('2d', { alpha: false, desynchronized: true }) || C.getContext('2d');
-
-C.width = W;
-C.height = H;
+let canvasScale = 1;
 C.tabIndex = 0;
 if (typeof C.setAttribute === 'function') {
   C.setAttribute('aria-label', 'Bounce Blitz game canvas');
+}
+
+function getDeviceCanvasScale() {
+  if (typeof window === 'undefined') return 1;
+  return Math.max(1, Math.min(window.devicePixelRatio || 1, 2));
+}
+
+function syncCanvasResolution() {
+  const nextScale = getDeviceCanvasScale();
+  const nextWidth = Math.round(W * nextScale);
+  const nextHeight = Math.round(H * nextScale);
+  if (C.width === nextWidth && C.height === nextHeight && canvasScale === nextScale) return;
+  canvasScale = nextScale;
+  C.width = nextWidth;
+  C.height = nextHeight;
+  if (typeof ctx.resetTransform === 'function') {
+    ctx.resetTransform();
+  } else if (typeof ctx.setTransform === 'function') {
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+  }
+  if (typeof ctx.setTransform === 'function') {
+    ctx.setTransform(canvasScale, 0, 0, canvasScale, 0, 0);
+  }
+  ctx.imageSmoothingEnabled = true;
+}
+
+export function getCanvasScale() {
+  return canvasScale;
 }
 
 // --- Pre-rendered grid (offscreen canvas) ---
@@ -31,6 +57,7 @@ gridCanvas.height = H;
 
 // --- Resize ---
 export function resize() {
+  syncCanvasResolution();
   const r = W / H;
   const viewport = window.visualViewport;
   let cw = viewport?.width || window.innerWidth;

@@ -234,6 +234,7 @@ export function resetGameState() {
     dashCharging: false,
     dashChargeTime: 0,
     dashChargeStaminaDrained: 0,
+    dashChargeExhausted: false,
     dashChargeTouchId: null,
     staminaFlashTimer: 0,
     bouncerImmunity: 0,

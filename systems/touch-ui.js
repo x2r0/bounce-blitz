@@ -650,31 +650,6 @@ function getTouchUiMode() {
   return 'menu';
 }
 
-function getDemoStickStates(mode, now, anchors) {
-  if (mode !== 'intro_move' && mode !== 'intro_dash' && mode !== 'tutorial') {
-    return { left: null, right: null };
-  }
-  const t = now / 1000;
-  const baseY = anchors?.baseY || (window.innerHeight - 110 - Math.max(0, window.innerHeight * 0.02));
-  const left = {
-    active: true,
-    cx: anchors?.leftX || window.innerWidth * 0.18,
-    cy: baseY,
-    dx: Math.sin(t * 2.1) * 24,
-    dy: Math.cos(t * 1.8) * 16,
-  };
-  const right = (mode === 'intro_dash' || mode === 'tutorial')
-    ? {
-        active: true,
-        cx: anchors?.rightX || window.innerWidth * 0.82,
-        cy: baseY,
-        dx: Math.cos(t * 2.6) * 18,
-        dy: Math.sin(t * 2.6) * 18,
-      }
-    : null;
-  return { left, right };
-}
-
 function getTouchAnchors(rect) {
   const bottomInset = 110 + Math.max(0, window.innerHeight * 0.02);
   const leftWidth = Math.max(0, Math.floor(rect.left));
@@ -751,21 +726,19 @@ export function syncTouchOverlay() {
 
   const mode = getTouchUiMode();
   const inGameplay = mode === 'gameplay';
-  const now = (typeof performance !== 'undefined' ? performance.now() : Date.now());
   const anchors = updateGutters();
   renderTouchHud(anchors);
-  const demos = getDemoStickStates(mode, now, anchors);
   const idleLeft = anchors ? { cx: anchors.leftX, cy: anchors.baseY, dx: 0, dy: 0 } : null;
   const idleRight = anchors ? { cx: anchors.rightX, cy: anchors.baseY, dx: 0, dy: 0 } : null;
   const leftHintVisibility = G.joystick.active ? 'active' : 'idle';
   const rightHintVisibility = G.dashStick.active ? 'active' : 'idle';
 
   if (mode === 'intro_move') {
-    setStickVisual(leftBase, leftThumb, demos.left, 'active');
-    setStickVisual(rightBase, rightThumb, idleRight, 'idle');
+    setStickVisual(leftBase, leftThumb, G.joystick.active ? G.joystick : idleLeft, G.joystick.active ? 'active' : 'idle');
+    setStickVisual(rightBase, rightThumb, null);
   } else if (mode === 'intro_dash' || mode === 'tutorial') {
-    setStickVisual(leftBase, leftThumb, demos.left || idleLeft, demos.left ? 'active' : 'idle');
-    setStickVisual(rightBase, rightThumb, demos.right || idleRight, demos.right ? 'active' : 'idle');
+    setStickVisual(leftBase, leftThumb, G.joystick.active ? G.joystick : idleLeft, G.joystick.active ? 'active' : 'idle');
+    setStickVisual(rightBase, rightThumb, G.dashStick.active ? G.dashStick : idleRight, G.dashStick.active ? 'active' : 'idle');
   } else if (inGameplay) {
     setStickVisual(leftBase, leftThumb, G.joystick.active ? G.joystick : idleLeft, G.joystick.active ? 'active' : 'idle');
     setStickVisual(rightBase, rightThumb, G.dashStick.active ? G.dashStick : idleRight, G.dashStick.active ? 'active' : 'idle');

@@ -202,6 +202,7 @@ export function damagePlayer(sourceX, sourceY) {
     player.dashCharging = false;
     player.dashChargeTime = 0;
     player.dashChargeStaminaDrained = 0;
+    player.dashChargeExhausted = false;
     player.dashChargeTouchId = null;
   }
 

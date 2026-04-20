@@ -390,6 +390,9 @@ function enterTransitionRoom(mode, bossWave, bossType) {
     G.player.vy = 0;
     G.player.dashCharging = false;
     G.player.dashChargeTime = 0;
+    G.player.dashChargeStaminaDrained = 0;
+    G.player.dashChargeExhausted = false;
+    G.player.dashChargeTouchId = null;
     G.player.stamina = G.player.maxStamina;
   }
   clearTransitionRoomUi();
@@ -5602,7 +5605,7 @@ function draw() {
       ctx.stroke();
       ctx.restore();
 
-      const tutPulse = 0.5 + 0.5 * Math.sin(Date.now() / 500 * Math.PI);
+      const tutPulse = 0.72 + 0.28 * (0.5 + 0.5 * Math.sin(Date.now() / 500 * Math.PI));
       ctx.save();
       ctx.globalAlpha = tutPulse;
       ctx.font = 'bold 17px ' + FONT;
@@ -5685,7 +5688,7 @@ function draw() {
     ctx.stroke();
     ctx.restore();
 
-    const tutPulse = 0.5 + 0.5 * Math.sin(Date.now() / 500 * Math.PI);
+    const tutPulse = 0.72 + 0.28 * (0.5 + 0.5 * Math.sin(Date.now() / 500 * Math.PI));
     ctx.save();
     ctx.globalAlpha = tutPulse;
     ctx.font = 'bold 14px ' + FONT;
