@@ -4,6 +4,7 @@ import { W, H, FONT, RARITY_COLORS } from '../config.js';
 import { G } from '../state.js';
 import { ctx, drawGlowText } from '../canvas.js';
 import { POWER_DEFS, EVOLUTION_RECIPES, getPlayerPower, getPlayerPowerLevel } from './powers.js';
+import { isTouchUILayout } from './touch-ui.js';
 
 // --- Card Layout Constants ---
 const CARD_W = 140;
@@ -24,10 +25,40 @@ function getEvoCardX() {
   return (W - EVO_CARD_W) / 2;
 }
 
+function getMobileCardLayout(offering) {
+  const hasEvolution = offering.length > 0 && offering[offering.length - 1].isEvolution;
+  const regularCount = hasEvolution ? offering.length - 1 : offering.length;
+  const rects = [];
+  const x = 46;
+  const w = W - 92;
+  const regularH = 108;
+  const evoH = 124;
+  const gap = 12;
+  let y = 98;
+  for (let i = 0; i < regularCount; i++) {
+    rects.push({ x, y, w, h: regularH });
+    y += regularH + gap;
+  }
+  const evoRect = hasEvolution ? { x, y, w, h: evoH } : null;
+  return { hasEvolution, regularCount, rects, evoRect };
+}
+
 // --- Card Hit Testing ---
 export function getCardAtPosition(x, y) {
   const offering = G.cardOffering;
   if (!offering || offering.length === 0) return -1;
+
+  if (isTouchUILayout()) {
+    const layout = getMobileCardLayout(offering);
+    for (let i = 0; i < layout.regularCount; i++) {
+      const rect = layout.rects[i];
+      if (x >= rect.x && x <= rect.x + rect.w && y >= rect.y && y <= rect.y + rect.h) return i;
+    }
+    if (layout.evoRect && x >= layout.evoRect.x && x <= layout.evoRect.x + layout.evoRect.w && y >= layout.evoRect.y && y <= layout.evoRect.y + layout.evoRect.h) {
+      return offering.length - 1;
+    }
+    return -1;
+  }
 
   // Check evolution card first (index = offering.length - 1 if it's an evolution)
   const lastCard = offering[offering.length - 1];
@@ -55,6 +86,7 @@ export function drawPowerSelectScreen() {
   const offering = G.cardOffering;
   if (!offering || offering.length === 0) return;
   const config = G.powerSelectConfig || {};
+  const isTouchDev = isTouchUILayout();
 
   // Dim background
   ctx.save();
@@ -64,7 +96,7 @@ export function drawPowerSelectScreen() {
   ctx.globalAlpha = 1;
 
   // Title
-  drawGlowText(config.title || 'CHOOSE A POWER', W / 2, 160, 'bold 32px ' + FONT, '#ffffff', '#00ffff', 10);
+  drawGlowText(config.title || 'CHOOSE A POWER', W / 2, isTouchDev ? 66 : 160, 'bold ' + (isTouchDev ? 28 : 32) + 'px ' + FONT, '#ffffff', '#00ffff', 10);
 
   // Pick animation
   const pickAnim = G.cardPickAnim;
@@ -75,57 +107,104 @@ export function drawPowerSelectScreen() {
   const regularCards = hasEvolution ? offering.slice(0, -1) : offering;
   const evoCard = hasEvolution ? offering[offering.length - 1] : null;
 
-  // Draw regular cards
-  for (let i = 0; i < regularCards.length; i++) {
-    const card = regularCards[i];
-    const cx = getCardX(i, regularCards.length);
-    const isHovered = G.cardHover === i;
-    const isPicked = pickAnim && pickAnim.index === i;
-
-    if (isPicked) {
-      // Zoom animation
-      const scale = 1 + animScale * 0.3;
-      const alpha = 1 - animScale * 0.5;
-      ctx.save();
-      ctx.globalAlpha = alpha;
-      ctx.translate(cx + CARD_W / 2, ROW_Y + CARD_H / 2);
-      ctx.scale(scale, scale);
-      drawCard(card, -CARD_W / 2, -CARD_H / 2, CARD_W, CARD_H, isHovered, i);
-      ctx.restore();
-    } else if (pickAnim) {
-      // Other cards fade out during pick
-      ctx.save();
-      ctx.globalAlpha = 1 - animScale;
-      drawCard(card, cx, ROW_Y, CARD_W, CARD_H, false, i);
-      ctx.restore();
-    } else {
-      drawCard(card, cx, ROW_Y, CARD_W, CARD_H, isHovered, i);
+  if (isTouchDev) {
+    const layout = getMobileCardLayout(offering);
+    for (let i = 0; i < regularCards.length; i++) {
+      const card = regularCards[i];
+      const rect = layout.rects[i];
+      const isHovered = G.cardHover === i;
+      const isPicked = pickAnim && pickAnim.index === i;
+      if (isPicked) {
+        const scale = 1 + animScale * 0.04;
+        const alpha = 1 - animScale * 0.45;
+        ctx.save();
+        ctx.globalAlpha = alpha;
+        ctx.translate(rect.x + rect.w / 2, rect.y + rect.h / 2);
+        ctx.scale(scale, scale);
+        drawCard(card, -rect.w / 2, -rect.h / 2, rect.w, rect.h, isHovered, i);
+        ctx.restore();
+      } else if (pickAnim) {
+        ctx.save();
+        ctx.globalAlpha = 1 - animScale;
+        drawCard(card, rect.x, rect.y, rect.w, rect.h, false, i);
+        ctx.restore();
+      } else {
+        drawCard(card, rect.x, rect.y, rect.w, rect.h, isHovered, i);
+      }
     }
-  }
+    if (evoCard && layout.evoRect) {
+      const evoIdx = offering.length - 1;
+      const rect = layout.evoRect;
+      const isHovered = G.cardHover === evoIdx;
+      const isPicked = pickAnim && pickAnim.index === evoIdx;
+      if (isPicked) {
+        const scale = 1 + animScale * 0.04;
+        const alpha = 1 - animScale * 0.45;
+        ctx.save();
+        ctx.globalAlpha = alpha;
+        ctx.translate(rect.x + rect.w / 2, rect.y + rect.h / 2);
+        ctx.scale(scale, scale);
+        drawCard(evoCard, -rect.w / 2, -rect.h / 2, rect.w, rect.h, isHovered, evoIdx);
+        ctx.restore();
+      } else if (pickAnim) {
+        ctx.save();
+        ctx.globalAlpha = 1 - animScale;
+        drawCard(evoCard, rect.x, rect.y, rect.w, rect.h, false, evoIdx);
+        ctx.restore();
+      } else {
+        drawCard(evoCard, rect.x, rect.y, rect.w, rect.h, isHovered, evoIdx);
+      }
+    }
+  } else {
+    // Draw regular cards
+    for (let i = 0; i < regularCards.length; i++) {
+      const card = regularCards[i];
+      const cx = getCardX(i, regularCards.length);
+      const isHovered = G.cardHover === i;
+      const isPicked = pickAnim && pickAnim.index === i;
 
-  // Draw evolution card
-  if (evoCard) {
-    const ex = getEvoCardX();
-    const evoIdx = offering.length - 1;
-    const isHovered = G.cardHover === evoIdx;
-    const isPicked = pickAnim && pickAnim.index === evoIdx;
+      if (isPicked) {
+        const scale = 1 + animScale * 0.3;
+        const alpha = 1 - animScale * 0.5;
+        ctx.save();
+        ctx.globalAlpha = alpha;
+        ctx.translate(cx + CARD_W / 2, ROW_Y + CARD_H / 2);
+        ctx.scale(scale, scale);
+        drawCard(card, -CARD_W / 2, -CARD_H / 2, CARD_W, CARD_H, isHovered, i);
+        ctx.restore();
+      } else if (pickAnim) {
+        ctx.save();
+        ctx.globalAlpha = 1 - animScale;
+        drawCard(card, cx, ROW_Y, CARD_W, CARD_H, false, i);
+        ctx.restore();
+      } else {
+        drawCard(card, cx, ROW_Y, CARD_W, CARD_H, isHovered, i);
+      }
+    }
 
-    if (isPicked) {
-      const scale = 1 + animScale * 0.3;
-      const alpha = 1 - animScale * 0.5;
-      ctx.save();
-      ctx.globalAlpha = alpha;
-      ctx.translate(ex + EVO_CARD_W / 2, EVO_Y + EVO_CARD_H / 2);
-      ctx.scale(scale, scale);
-      drawCard(evoCard, -EVO_CARD_W / 2, -EVO_CARD_H / 2, EVO_CARD_W, EVO_CARD_H, isHovered, evoIdx);
-      ctx.restore();
-    } else if (pickAnim) {
-      ctx.save();
-      ctx.globalAlpha = 1 - animScale;
-      drawCard(evoCard, ex, EVO_Y, EVO_CARD_W, EVO_CARD_H, false, evoIdx);
-      ctx.restore();
-    } else {
-      drawCard(evoCard, ex, EVO_Y, EVO_CARD_W, EVO_CARD_H, isHovered, evoIdx);
+    if (evoCard) {
+      const ex = getEvoCardX();
+      const evoIdx = offering.length - 1;
+      const isHovered = G.cardHover === evoIdx;
+      const isPicked = pickAnim && pickAnim.index === evoIdx;
+
+      if (isPicked) {
+        const scale = 1 + animScale * 0.3;
+        const alpha = 1 - animScale * 0.5;
+        ctx.save();
+        ctx.globalAlpha = alpha;
+        ctx.translate(ex + EVO_CARD_W / 2, EVO_Y + EVO_CARD_H / 2);
+        ctx.scale(scale, scale);
+        drawCard(evoCard, -EVO_CARD_W / 2, -EVO_CARD_H / 2, EVO_CARD_W, EVO_CARD_H, isHovered, evoIdx);
+        ctx.restore();
+      } else if (pickAnim) {
+        ctx.save();
+        ctx.globalAlpha = 1 - animScale;
+        drawCard(evoCard, ex, EVO_Y, EVO_CARD_W, EVO_CARD_H, false, evoIdx);
+        ctx.restore();
+      } else {
+        drawCard(evoCard, ex, EVO_Y, EVO_CARD_W, EVO_CARD_H, isHovered, evoIdx);
+      }
     }
   }
 
@@ -137,14 +216,16 @@ export function drawPowerSelectScreen() {
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       ctx.fillStyle = '#8ca4c2';
-      ctx.fillText(config.hint, W / 2, ROW_Y + CARD_H + 14);
+      ctx.fillText(config.hint, W / 2, isTouchDev ? H - 24 : ROW_Y + CARD_H + 14);
     }
-    ctx.font = '14px ' + FONT;
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillStyle = '#666666';
-    const keys = offering.map((_, index) => String(index + 1)).join('/');
-    ctx.fillText('Press ' + keys + ' or click to choose', W / 2, ROW_Y + CARD_H + 32);
+    if (!isTouchDev) {
+      ctx.font = '14px ' + FONT;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillStyle = '#666666';
+      const keys = offering.map((_, index) => String(index + 1)).join('/');
+      ctx.fillText('Press ' + keys + ' or click to choose', W / 2, ROW_Y + CARD_H + 32);
+    }
     ctx.restore();
   }
 
@@ -153,6 +234,7 @@ export function drawPowerSelectScreen() {
 
 function drawCard(card, x, y, w, h, isHovered, index) {
   const rarityColor = RARITY_COLORS[card.rarity] || '#ffffff';
+  const isWideMobile = h <= 128;
 
   // Hover effects: 105% scale + upward translate + border brighten
   let drawX = x, drawY = y;
@@ -183,65 +265,102 @@ function drawCard(card, x, y, w, h, isHovered, index) {
   ctx.stroke();
   ctx.shadowBlur = 0;
 
-  // Icon area — distinct shape per power
-  const iconX = drawX + w / 2;
-  const iconY = drawY + 50;
-  drawPowerIcon(card.icon, card.shape, iconX, iconY, 20);
-
-  // Power name
-  ctx.font = 'bold 14px ' + FONT;
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  ctx.fillStyle = '#ffffff';
-  ctx.fillText(card.name, drawX + w / 2, drawY + 90);
-
-  // Level stars (for upgrades)
-  if (card.isUpgrade && card.currentLevel > 0) {
-    const stars = '★'.repeat(card.currentLevel) + '☆'.repeat(card.nextLevel - card.currentLevel);
-    ctx.font = '12px ' + FONT;
-    ctx.fillStyle = '#ffdd44';
-    ctx.fillText(stars, drawX + w / 2, drawY + 108);
-
-    // UPGRADE banner
-    ctx.font = 'bold 10px ' + FONT;
-    ctx.fillStyle = '#ffdd44';
-    ctx.fillText('UPGRADE', drawX + w / 2, drawY + 122);
-  } else if (card.isEvolution) {
-    ctx.font = 'bold 10px ' + FONT;
-    ctx.fillStyle = '#ffdd44';
-    ctx.fillText('★ EVOLUTION ★', drawX + w / 2, drawY + 108);
-  }
-
-  const hasRewardTags = G.meta.unlocks.includes(4) && Array.isArray(card.rewardTags) && card.rewardTags.length > 0;
-  let descY = card.isUpgrade ? 140 : 118;
-  if (hasRewardTags) {
-    ctx.font = 'bold 9px ' + FONT;
+  if (isWideMobile) {
+    const iconX = drawX + 40;
+    const iconY = drawY + h / 2;
+    drawPowerIcon(card.icon, card.shape, iconX, iconY, 18);
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+    ctx.font = 'bold 20px ' + FONT;
+    ctx.fillStyle = '#ffffff';
+    ctx.fillText(card.name, drawX + 74, drawY + 26);
+    const hasRewardTags = G.meta.unlocks.includes(4) && Array.isArray(card.rewardTags) && card.rewardTags.length > 0;
+    if (hasRewardTags) {
+      ctx.font = 'bold 11px ' + FONT;
+      ctx.fillStyle = rarityColor;
+      ctx.fillText(card.rewardTags.join(' · '), drawX + 74, drawY + 42);
+    }
+    if (card.isUpgrade && card.currentLevel > 0) {
+      const stars = '★'.repeat(card.currentLevel) + '☆'.repeat(card.nextLevel - card.currentLevel);
+      ctx.font = '12px ' + FONT;
+      ctx.fillStyle = '#ffdd44';
+      ctx.fillText(stars, drawX + 74, drawY + h - 22);
+    } else if (card.isEvolution) {
+      ctx.font = 'bold 12px ' + FONT;
+      ctx.fillStyle = '#ffdd44';
+      ctx.fillText('★ EVOLUTION ★', drawX + 74, drawY + h - 22);
+    }
+    ctx.font = '13px ' + FONT;
+    ctx.fillStyle = '#b7c4d8';
+    wrapText(card.desc, drawX + 74, drawY + 60, w - 170, 16, 2);
+    ctx.font = '11px ' + FONT;
+    ctx.textAlign = 'right';
     ctx.fillStyle = rarityColor;
-    ctx.fillText(card.rewardTags.join(' · '), drawX + w / 2, drawY + descY - 12);
-    descY += 6;
+    ctx.fillText(card.rarity.toUpperCase(), drawX + w - 14, drawY + 18);
+    ctx.font = 'bold 13px ' + FONT;
+    ctx.fillStyle = '#6e7d96';
+    ctx.fillText(String(index + 1), drawX + w - 14, drawY + h - 16);
+  } else {
+    // Icon area — distinct shape per power
+    const iconX = drawX + w / 2;
+    const iconY = drawY + 50;
+    drawPowerIcon(card.icon, card.shape, iconX, iconY, 20);
+
+    // Power name
+    ctx.font = 'bold 14px ' + FONT;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = '#ffffff';
+    ctx.fillText(card.name, drawX + w / 2, drawY + 90);
+
+    // Level stars (for upgrades)
+    if (card.isUpgrade && card.currentLevel > 0) {
+      const stars = '★'.repeat(card.currentLevel) + '☆'.repeat(card.nextLevel - card.currentLevel);
+      ctx.font = '12px ' + FONT;
+      ctx.fillStyle = '#ffdd44';
+      ctx.fillText(stars, drawX + w / 2, drawY + 108);
+
+      // UPGRADE banner
+      ctx.font = 'bold 10px ' + FONT;
+      ctx.fillStyle = '#ffdd44';
+      ctx.fillText('UPGRADE', drawX + w / 2, drawY + 122);
+    } else if (card.isEvolution) {
+      ctx.font = 'bold 10px ' + FONT;
+      ctx.fillStyle = '#ffdd44';
+      ctx.fillText('★ EVOLUTION ★', drawX + w / 2, drawY + 108);
+    }
+
+    const hasRewardTags = G.meta.unlocks.includes(4) && Array.isArray(card.rewardTags) && card.rewardTags.length > 0;
+    let descY = card.isUpgrade ? 140 : 118;
+    if (hasRewardTags) {
+      ctx.font = 'bold 9px ' + FONT;
+      ctx.fillStyle = rarityColor;
+      ctx.fillText(card.rewardTags.join(' · '), drawX + w / 2, drawY + descY - 12);
+      descY += 6;
+    }
+
+    // Effect text (word-wrapped)
+    ctx.font = '11px ' + FONT;
+    ctx.fillStyle = '#aaaacc';
+    wrapText(card.desc, drawX + 10, drawY + descY, w - 20, 14);
+
+    // Rarity label
+    ctx.font = '10px ' + FONT;
+    ctx.textAlign = 'right';
+    ctx.fillStyle = rarityColor;
+    ctx.fillText(card.rarity.toUpperCase(), drawX + w - 8, drawY + h - 10);
+
+    // Evolution recipe hint row
+    if (!card.isEvolution && card.powerId) {
+      drawEvolutionHintRow(card.powerId, drawX, drawY, w, h);
+    }
+
+    // Card number hint
+    ctx.font = 'bold 12px ' + FONT;
+    ctx.textAlign = 'left';
+    ctx.fillStyle = '#555555';
+    ctx.fillText(String(index + 1), drawX + 8, drawY + h - 10);
   }
-
-  // Effect text (word-wrapped)
-  ctx.font = '11px ' + FONT;
-  ctx.fillStyle = '#aaaacc';
-  wrapText(card.desc, drawX + 10, drawY + descY, w - 20, 14);
-
-  // Rarity label
-  ctx.font = '10px ' + FONT;
-  ctx.textAlign = 'right';
-  ctx.fillStyle = rarityColor;
-  ctx.fillText(card.rarity.toUpperCase(), drawX + w - 8, drawY + h - 10);
-
-  // Evolution recipe hint row
-  if (!card.isEvolution && card.powerId) {
-    drawEvolutionHintRow(card.powerId, drawX, drawY, w, h);
-  }
-
-  // Card number hint
-  ctx.font = 'bold 12px ' + FONT;
-  ctx.textAlign = 'left';
-  ctx.fillStyle = '#555555';
-  ctx.fillText(String(index + 1), drawX + 8, drawY + h - 10);
 
   ctx.restore();
 }
@@ -566,23 +685,32 @@ export function drawPowerIcon(color, shape, cx, cy, r) {
   ctx.restore();
 }
 
-function wrapText(text, x, y, maxWidth, lineHeight) {
+function wrapText(text, x, y, maxWidth, lineHeight, maxLines = Infinity) {
   const words = text.split(' ');
   let line = '';
   let lineY = y;
-  ctx.textAlign = 'center';
+  const originalAlign = ctx.textAlign;
   const centerX = x + maxWidth / 2;
+  let linesDrawn = 0;
 
   for (const word of words) {
     const test = line + (line ? ' ' : '') + word;
     const metrics = ctx.measureText(test);
     if (metrics.width > maxWidth && line) {
-      ctx.fillText(line, centerX, lineY);
+      if (linesDrawn >= maxLines - 1) {
+        const clipped = line.endsWith('…') ? line : (line + '…');
+        ctx.fillText(clipped, originalAlign === 'left' ? x : centerX, lineY);
+        ctx.textAlign = originalAlign;
+        return;
+      }
+      ctx.fillText(line, originalAlign === 'left' ? x : centerX, lineY);
+      linesDrawn++;
       line = word;
       lineY += lineHeight;
     } else {
       line = test;
     }
   }
-  if (line) ctx.fillText(line, centerX, lineY);
+  if (line && linesDrawn < maxLines) ctx.fillText(line, originalAlign === 'left' ? x : centerX, lineY);
+  ctx.textAlign = originalAlign;
 }

@@ -26,8 +26,10 @@ import { ensureTitleMusicStarted, sfxDash, sfxUIClick, sfxCardPick, startMusic, 
   getMusicVolume, getSfxVolume, isMuted, setMusicVolume, setSfxVolume, toggleMute } from './audio.js';
 import { saveRunState, hasSavedRun, clearRunState, saveSettings } from './save.js';
 import { getStorageItem, setStorageItem } from './storage.js';
-import { openGlossary, closeGlossary, glossaryInput, glossaryClickTest, glossaryDetailWheel } from './glossary.js';
-import { isTouchUILayout, bindTouchPauseButton } from './touch-ui.js';
+import { openGlossary, closeGlossary, glossaryInput, glossaryClickTest, glossaryDetailWheel, glossaryTouchScroll } from './glossary.js';
+import { isTouchUILayout, isTouchPortraitBlocked, bindTouchPauseButton, bindTouchBackButton } from './touch-ui.js';
+
+let touchScrollGesture = null;
 
 function quitRun() {
   // Skip save if no meaningful progress (wave 1, no kills)
@@ -65,6 +67,53 @@ function canvasCoordsOrNull(cx, cy) {
   const rect = C.getBoundingClientRect();
   if (cx < rect.left || cx > rect.right || cy < rect.top || cy > rect.bottom) return null;
   return { x: (cx - rect.left) / rect.width * W, y: (cy - rect.top) / rect.height * H };
+}
+
+function beginTouchScrollGesture(kind, identifier, clientX, clientY, canvasPoint) {
+  touchScrollGesture = {
+    kind,
+    id: identifier,
+    startX: clientX,
+    startY: clientY,
+    lastCanvasY: canvasPoint?.y ?? 0,
+    startCanvasX: canvasPoint?.x ?? 0,
+    startCanvasY: canvasPoint?.y ?? 0,
+    moved: false,
+  };
+}
+
+function updateTouchScrollGesture(clientX, clientY) {
+  if (!touchScrollGesture) return;
+  const p = canvasCoordsOrNull(clientX, clientY);
+  if (!p) return;
+  const dy = p.y - touchScrollGesture.lastCanvasY;
+  if (Math.abs(clientY - touchScrollGesture.startY) > 8 || Math.abs(clientX - touchScrollGesture.startX) > 8) {
+    touchScrollGesture.moved = true;
+  }
+  if (touchScrollGesture.kind === 'upgrades') {
+    const max = G._upgradeScrollMax || 0;
+    G.upgradeScrollY = Math.max(0, Math.min(max, G.upgradeScrollY - dy));
+  } else if (touchScrollGesture.kind === 'glossary') {
+    glossaryTouchScroll(p.x, p.y, dy);
+  }
+  touchScrollGesture.lastCanvasY = p.y;
+}
+
+function finishTouchScrollGesture(clientX, clientY) {
+  if (!touchScrollGesture) return false;
+  const gesture = touchScrollGesture;
+  touchScrollGesture = null;
+  if (gesture.moved) return true;
+  const p = canvasCoordsOrNull(clientX, clientY) || { x: gesture.startCanvasX, y: gesture.startCanvasY };
+  if (gesture.kind === 'upgrades') {
+    handleInput(p.x, p.y);
+    return true;
+  }
+  if (gesture.kind === 'glossary') {
+    glossaryClickTest(p.x, p.y);
+    return true;
+  }
+  return false;
 }
 
 function beginMoveStick(identifier, clientX, clientY) {
@@ -122,6 +171,12 @@ function clearDashStick() {
   G.dashStick.dy = 0;
 }
 
+export function clearTouchSticks() {
+  clearMoveStick();
+  clearDashStick();
+  if (G.player) G.player.dashChargeTouchId = null;
+}
+
 function claimInputFocus() {
   try { window.focus(); } catch {}
   if (document.activeElement === C) return;
@@ -143,6 +198,73 @@ function closeSettings() {
   // Persist current audio state
   saveSettings({ musicVolume: getMusicVolume(), sfxVolume: getSfxVolume(), muted: isMuted() });
   G.state = G._settingsPrevState || STATE.TITLE;
+}
+
+function closeUpgradesScreen() {
+  if (G._upgradesPrevState === STATE.RELAY_CHAMBER) {
+    import('../game.js').then(m => m.refreshRelayChamber());
+    G.state = STATE.RELAY_CHAMBER;
+  } else {
+    G.state = STATE.TITLE;
+  }
+}
+
+function closeLoadoutScreen() {
+  G._loadoutHoverIndex = -1;
+  G.state = STATE.TITLE;
+}
+
+function closeRelayChamberToMenu() {
+  sfxUIClick();
+  setMusicState('title');
+  G.relayChamber = null;
+  G.state = STATE.TITLE;
+}
+
+function handleTouchBackAction() {
+  if (G.state === STATE.STORY_INTRO) {
+    import('../game.js').then(m => m.skipStoryIntro());
+    return;
+  }
+  if (G.state === STATE.SETTINGS) {
+    sfxUIClick();
+    closeSettings();
+    return;
+  }
+  if (G.state === STATE.LOADOUT) {
+    sfxUIClick();
+    closeLoadoutScreen();
+    return;
+  }
+  if (G.state === STATE.UPGRADES) {
+    sfxUIClick();
+    closeUpgradesScreen();
+    return;
+  }
+  if (G.state === STATE.GLOSSARY) {
+    sfxUIClick();
+    closeGlossary();
+    return;
+  }
+  if (G.state === STATE.MODE_SELECT) {
+    sfxUIClick();
+    G.state = STATE.TITLE;
+    return;
+  }
+  if (G.state === STATE.PAUSED) {
+    sfxUIClick();
+    resumeFromPause();
+    return;
+  }
+  if (G.state === STATE.RELAY_CHAMBER) {
+    if (G.relayChamber?.mobileOverlay) {
+      sfxUIClick();
+      G.relayChamber.mobileOverlay = null;
+      G.relayChamber.focusSection = 'cta';
+      return;
+    }
+    closeRelayChamberToMenu();
+  }
 }
 
 function settingsAdjust(delta) {
@@ -325,6 +447,8 @@ function continueFromRunSummary() {
 function getRelayActionAt(x, y) {
   if (hitTest(x, y, G._relayActionRects.runback)) return 'runback';
   if (hitTest(x, y, G._relayActionRects.upgrades)) return 'upgrades';
+  if (hitTest(x, y, G._relayActionRects.loadout)) return 'loadout';
+  if (hitTest(x, y, G._relayActionRects.quick)) return 'quick';
   if (hitTest(x, y, G._relayActionRects.menu)) return 'menu';
   return null;
 }
@@ -345,6 +469,14 @@ function getRelayLoadoutAt(x, y) {
   return -1;
 }
 
+function getUpgradeRowAt(x, y) {
+  if (!G._upgradeRowRects) return -1;
+  for (let i = 0; i < G._upgradeRowRects.length; i++) {
+    if (hitTest(x, y, G._upgradeRowRects[i])) return i;
+  }
+  return -1;
+}
+
 function getTransitionRoomOptionAt(x, y) {
   if (!G._transitionOptionRects) return -1;
   for (let i = 0; i < G._transitionOptionRects.length; i++) {
@@ -356,6 +488,7 @@ function getTransitionRoomOptionAt(x, y) {
 function openUpgradesScreen(fromState) {
   G._upgradesPrevState = fromState;
   G.upgradeCursor = 0;
+  G.upgradeScrollY = 0;
   G.state = STATE.UPGRADES;
 }
 
@@ -372,6 +505,18 @@ function activateRelayAction(action) {
     const firstIndex = firstQuickUpgrade ? UPGRADES.findIndex(u => u.id === firstQuickUpgrade) : 0;
     G.upgradeCursor = Math.max(0, firstIndex);
     openUpgradesScreen(STATE.RELAY_CHAMBER);
+    return true;
+  }
+  if (action === 'loadout') {
+    sfxUIClick();
+    G.relayChamber.mobileOverlay = 'loadouts';
+    G.relayChamber.focusSection = 'loadouts';
+    return true;
+  }
+  if (action === 'quick') {
+    sfxUIClick();
+    G.relayChamber.mobileOverlay = 'quickSpend';
+    G.relayChamber.focusSection = 'upgrades';
     return true;
   }
   if (action === 'menu') {
@@ -407,6 +552,7 @@ function equipRelayLoadout(index) {
   if (!loadout || !isLoadoutUnlocked(G.meta, loadout.id)) return false;
   G.meta.selectedLoadout = loadout.id;
   saveMeta(G.meta);
+  if (G.relayChamber) G.relayChamber.mobileOverlay = null;
   sfxCardPick();
   return true;
 }
@@ -443,11 +589,46 @@ function handleInput(x, y) {
     beginTitleRun();
     return;
   }
+  if (G.state === STATE.UPGRADES) {
+    const idx = getUpgradeRowAt(x, y);
+    if (idx >= 0) {
+      const row = G._upgradeRowRects[idx];
+      if (row) {
+        G.upgradeCursor = row.index;
+        const u = UPGRADES[row.index];
+        if (u && canPurchaseUpgrade(G.meta, u.id)) {
+          sfxCardPick();
+          purchaseUpgrade(G.meta, u.id);
+        } else {
+          sfxUIClick();
+        }
+      }
+    }
+    return;
+  }
   if (G.state === STATE.RELAY_CHAMBER) {
+    if (G.relayChamber?.mobileOverlay === 'quickSpend') {
+      const upgradeIndex = getRelayUpgradeAt(x, y);
+      if (upgradeIndex >= 0) {
+        G.relayChamber.focusSection = 'upgrades';
+        G.relayChamber.upgradeIndex = upgradeIndex;
+        purchaseRelayUpgrade(upgradeIndex);
+      }
+      return;
+    }
+    if (G.relayChamber?.mobileOverlay === 'loadouts') {
+      const loadoutIndex = getRelayLoadoutAt(x, y);
+      if (loadoutIndex >= 0) {
+        G.relayChamber.focusSection = 'loadouts';
+        G.relayChamber.loadoutIndex = loadoutIndex;
+        equipRelayLoadout(loadoutIndex);
+      }
+      return;
+    }
     const action = getRelayActionAt(x, y);
     if (action) {
       G.relayChamber.focusSection = 'cta';
-      G.relayChamber.ctaIndex = ['runback', 'upgrades', 'menu'].indexOf(action);
+      G.relayChamber.ctaIndex = ['runback', 'upgrades', 'loadout', 'quick', 'menu'].indexOf(action);
       activateRelayAction(action);
       return;
     }
@@ -940,6 +1121,10 @@ export function getDashProjection() {
 }
 
 export function setupInput() {
+  bindTouchBackButton(() => {
+    handleTouchBackAction();
+  });
+
   bindTouchPauseButton(() => {
     if (G.state === STATE.PLAYING || G.state === STATE.WAVE_BREAK || G.state === STATE.BOSS_FIGHT) {
       sfxUIClick();
@@ -1041,7 +1226,13 @@ export function setupInput() {
 
   window.addEventListener('touchstart', e => {
     if (!isTouchUILayout()) return;
-    if (e.target?.closest?.('#bb-touch-pause')) return;
+    if (isTouchPortraitBlocked()) {
+      clearTouchSticks();
+      if (G.player?.dashCharging) cancelDashCharge(true);
+      e.preventDefault();
+      return;
+    }
+    if (e.target?.closest?.('#bb-touch-pause') || e.target?.closest?.('#bb-touch-back')) return;
     claimInputFocus();
     e.preventDefault();
     for (let i = 0; i < e.changedTouches.length; i++) {
@@ -1050,7 +1241,11 @@ export function setupInput() {
       const isLeftHalf = t.clientX < window.innerWidth / 2;
 
       if (G.state === STATE.GLOSSARY) {
-        if (p) glossaryClickTest(p.x, p.y);
+        if (p) beginTouchScrollGesture('glossary', t.identifier, t.clientX, t.clientY, p);
+        return;
+      }
+      if (G.state === STATE.UPGRADES) {
+        if (p) beginTouchScrollGesture('upgrades', t.identifier, t.clientX, t.clientY, p);
         return;
       }
       if (G.state === STATE.POWER_SELECT) {
@@ -1114,9 +1309,19 @@ export function setupInput() {
 
   window.addEventListener('touchmove', e => {
     if (!isTouchUILayout()) return;
+    if (isTouchPortraitBlocked()) {
+      clearTouchSticks();
+      if (G.player?.dashCharging) cancelDashCharge(true);
+      e.preventDefault();
+      return;
+    }
     e.preventDefault();
     for (let i = 0; i < e.changedTouches.length; i++) {
       const t = e.changedTouches[i];
+      if (touchScrollGesture && t.identifier === touchScrollGesture.id) {
+        updateTouchScrollGesture(t.clientX, t.clientY);
+        continue;
+      }
       if (G.joystick.active && t.identifier === G.joystick.touchId) {
         updateStick(G.joystick, t.clientX, t.clientY, 50, 12);
       } else if (G.dashStick.active && t.identifier === G.dashStick.touchId) {
@@ -1127,8 +1332,18 @@ export function setupInput() {
 
   window.addEventListener('touchend', e => {
     if (!isTouchUILayout()) return;
+    if (isTouchPortraitBlocked()) {
+      clearTouchSticks();
+      if (G.player?.dashCharging) cancelDashCharge(true);
+      e.preventDefault();
+      return;
+    }
     for (let i = 0; i < e.changedTouches.length; i++) {
       const t = e.changedTouches[i];
+      if (touchScrollGesture && t.identifier === touchScrollGesture.id) {
+        finishTouchScrollGesture(t.clientX, t.clientY);
+        continue;
+      }
       if (G.joystick.active && t.identifier === G.joystick.touchId) {
         clearMoveStick();
       }
@@ -1145,8 +1360,18 @@ export function setupInput() {
 
   window.addEventListener('touchcancel', e => {
     if (!isTouchUILayout()) return;
+    if (isTouchPortraitBlocked()) {
+      clearTouchSticks();
+      if (G.player?.dashCharging) cancelDashCharge(true);
+      e.preventDefault();
+      return;
+    }
     for (let i = 0; i < e.changedTouches.length; i++) {
       const t = e.changedTouches[i];
+      if (touchScrollGesture && t.identifier === touchScrollGesture.id) {
+        touchScrollGesture = null;
+        continue;
+      }
       if (G.joystick.active && t.identifier === G.joystick.touchId) {
         clearMoveStick();
       }
@@ -1265,12 +1490,7 @@ export function setupInput() {
     if (G.state === STATE.UPGRADES) {
       if (key === 'escape') {
         sfxUIClick();
-        if (G._upgradesPrevState === STATE.RELAY_CHAMBER) {
-          import('../game.js').then(m => m.refreshRelayChamber());
-          G.state = STATE.RELAY_CHAMBER;
-        } else {
-          G.state = STATE.TITLE;
-        }
+        closeUpgradesScreen();
         e.preventDefault();
         return;
       }
@@ -1297,10 +1517,13 @@ export function setupInput() {
 
     if (G.state === STATE.RELAY_CHAMBER && G.relayChamber) {
       if (key === 'escape' || key === 'backspace') {
-        sfxUIClick();
-        setMusicState('title');
-        G.relayChamber = null;
-        G.state = STATE.TITLE;
+        if (G.relayChamber.mobileOverlay) {
+          G.relayChamber.mobileOverlay = null;
+          G.relayChamber.focusSection = 'cta';
+          e.preventDefault();
+          return;
+        }
+        closeRelayChamberToMenu();
         e.preventDefault();
         return;
       }
@@ -1407,7 +1630,7 @@ export function setupInput() {
 
     // --- Loadout screen ---
     if (G.state === STATE.LOADOUT) {
-      if (key === 'escape') { G._loadoutHoverIndex = -1; G.state = STATE.TITLE; e.preventDefault(); return; }
+      if (key === 'escape') { closeLoadoutScreen(); e.preventDefault(); return; }
       if (key === 'arrowup' || key === 'w') {
         G.loadoutCursor = Math.max(0, G.loadoutCursor - 1);
         e.preventDefault(); return;

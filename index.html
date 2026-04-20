@@ -13,7 +13,40 @@
 <link rel="icon" href="assets/favicon.ico">
 <style>
 * { margin: 0; padding: 0; box-sizing: border-box; }
-html, body { width: 100%; height: 100%; min-height: 100dvh; overflow: hidden; background: #000; overscroll-behavior: none; touch-action: none; }
+html, body {
+  width: 100%;
+  height: 100%;
+  min-height: 100dvh;
+  overflow: hidden;
+  overscroll-behavior: none;
+  touch-action: none;
+}
+body {
+  position: relative;
+  background:
+    radial-gradient(circle at 50% 18%, rgba(106, 243, 255, 0.16), rgba(106, 243, 255, 0) 30%),
+    radial-gradient(circle at 82% 78%, rgba(255, 185, 120, 0.10), rgba(255, 185, 120, 0) 24%),
+    linear-gradient(180deg, #02060d 0%, #07131f 46%, #030912 100%);
+}
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background-image:
+    linear-gradient(rgba(120, 243, 255, 0.055) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(120, 243, 255, 0.05) 1px, transparent 1px);
+  background-size: 28px 28px;
+  opacity: 0.22;
+  mix-blend-mode: screen;
+}
+body::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  box-shadow: inset 0 0 140px rgba(0, 0, 0, 0.48);
+}
 canvas {
   display: block;
   margin: auto;
@@ -25,6 +58,7 @@ canvas {
   -webkit-touch-callout: none;
   -webkit-user-select: none;
   user-select: none;
+  filter: drop-shadow(0 18px 48px rgba(0, 0, 0, 0.32));
 }
 </style>
 </head>

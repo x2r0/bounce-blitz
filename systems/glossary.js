@@ -9,6 +9,7 @@ import { POWER_DEFS, EVOLUTION_RECIPES } from './powers.js';
 import { BOSS_DEFS } from './boss.js';
 import { BOOST_DEFS } from './lootcrate.js';
 import { BOSS_GLOSSARY_LORE } from './lore.js';
+import { isTouchUILayout } from './touch-ui.js';
 
 // --- Glossary State ---
 export const glossary = {
@@ -533,6 +534,7 @@ export function updateToasts(dt) {
 
 export function drawToasts() {
   if (toasts.length === 0) return;
+  const touch = isTouchUILayout();
   ctx.save();
   for (let i = 0; i < toasts.length; i++) {
     const t = toasts[i];
@@ -546,23 +548,24 @@ export function drawToasts() {
     }
     alpha = Math.max(0, Math.min(1, alpha));
 
-    const tx = W - 20;
-    const ty = H - 40 - i * 28;
+    const tx = touch ? 24 : W - 20;
+    const ty = touch ? (28 + i * 30) : (H - 40 - i * 28);
+    const toastW = touch ? 308 : 240;
 
     ctx.globalAlpha = alpha * 0.85;
     ctx.fillStyle = 'rgba(5, 5, 20, 0.9)';
     ctx.beginPath();
-    ctx.roundRect(tx - 230, ty - 12, 240, 24, 4);
+    ctx.roundRect(touch ? tx : (tx - 230), ty - 12, toastW, touch ? 28 : 24, 6);
     ctx.fill();
 
     ctx.globalAlpha = alpha;
-    ctx.font = 'bold 12px ' + FONT;
-    ctx.textAlign = 'right';
+    ctx.font = 'bold ' + (touch ? '13px ' : '12px ') + FONT;
+    ctx.textAlign = touch ? 'left' : 'right';
     ctx.textBaseline = 'middle';
     ctx.fillStyle = '#ffdd44';
     ctx.shadowColor = '#ffdd44';
     ctx.shadowBlur = 4;
-    ctx.fillText(t.text, tx - 6, ty);
+    ctx.fillText(t.text, touch ? (tx + 14) : (tx - 6), ty);
     ctx.shadowBlur = 0;
   }
   ctx.restore();
@@ -604,6 +607,7 @@ export function openGlossary(fromState) {
   glossary.cursor = 0;
   glossary.scrollOffset = 0;
   glossary.detailScroll = 0;
+  glossary._listDragAccum = 0;
   G.state = STATE.GLOSSARY;
 }
 
@@ -660,37 +664,100 @@ const LIST_TOP = 88;
 const LIST_LEFT = 20;
 const LIST_WIDTH = 340;
 
+function getGlossaryLayout() {
+  if (isTouchUILayout()) {
+    const tabW = 176;
+    const tabH = 34;
+    const tabGap = 8;
+    const tabStartX = W / 2 - (tabW * 4 + tabGap * 3) / 2;
+    const tabStartY = 62;
+    return {
+      isTouch: true,
+      tabs: {
+        w: tabW,
+        h: tabH,
+        gap: tabGap,
+        startX: tabStartX,
+        startY: tabStartY,
+      },
+      list: {
+        x: 38,
+        y: 112,
+        w: W - 76,
+        h: 182,
+        itemH: 34,
+        visible: 5,
+      },
+      detail: {
+        x: 38,
+        y: 308,
+        w: W - 76,
+        h: 244,
+      },
+    };
+  }
+  return {
+    isTouch: false,
+    tabs: {
+      w: 180,
+      h: 24,
+      gap: 0,
+      startX: (W - 180 * 4) / 2,
+      startY: 55,
+    },
+    list: {
+      x: LIST_LEFT,
+      y: LIST_TOP,
+      w: LIST_WIDTH,
+      h: LIST_VISIBLE * LIST_ITEM_H,
+      itemH: LIST_ITEM_H,
+      visible: LIST_VISIBLE,
+    },
+    detail: {
+      x: 380,
+      y: LIST_TOP,
+      w: W - 380 - 20,
+      h: LIST_VISIBLE * LIST_ITEM_H,
+    },
+  };
+}
+
 function ensureCursorVisible(total) {
+  const visible = getGlossaryLayout().list.visible;
   if (glossary.cursor < glossary.scrollOffset) {
     glossary.scrollOffset = glossary.cursor;
-  } else if (glossary.cursor >= glossary.scrollOffset + LIST_VISIBLE) {
-    glossary.scrollOffset = glossary.cursor - LIST_VISIBLE + 1;
+  } else if (glossary.cursor >= glossary.scrollOffset + visible) {
+    glossary.scrollOffset = glossary.cursor - visible + 1;
   }
 }
 
 // --- Click/Tap Hit Testing ---
 export function glossaryClickTest(x, y) {
-  // Tab bar: y ~ 55-75, tabs evenly spaced
-  if (y >= 50 && y <= 78) {
-    const tabW = 180;
-    const totalW = tabW * 4;
-    const startX = (W - totalW) / 2;
-    for (let i = 0; i < 4; i++) {
-      const tx = startX + i * tabW;
-      if (x >= tx && x < tx + tabW) {
+  const layout = getGlossaryLayout();
+
+  for (let i = 0; i < 4; i++) {
+    const tx = layout.isTouch
+      ? layout.tabs.startX + (i % 2) * (layout.tabs.w + layout.tabs.gap)
+      : layout.tabs.startX + i * layout.tabs.w;
+    const ty = layout.isTouch
+      ? layout.tabs.startY + Math.floor(i / 2) * (layout.tabs.h + 10)
+      : layout.tabs.startY - layout.tabs.h / 2;
+    const tw = layout.tabs.w;
+    const th = layout.isTouch ? layout.tabs.h : 28;
+    if (x >= tx && x < tx + tw && y >= ty && y <= ty + th) {
         glossary.category = i;
         glossary.cursor = 0;
         glossary.scrollOffset = 0;
         glossary.detailScroll = 0;
+        glossary._listDragAccum = 0;
         return true;
-      }
     }
   }
 
-  // Entry list: left panel
-  if (x >= LIST_LEFT && x < LIST_LEFT + LIST_WIDTH && y >= LIST_TOP) {
+  const list = layout.list;
+  if (x >= list.x && x < list.x + list.w && y >= list.y && y < list.y + list.h) {
     const entries = getCategoryEntries(glossary.category);
-    const idx = Math.floor((y - LIST_TOP) / LIST_ITEM_H) + glossary.scrollOffset;
+    const idx = Math.floor((y - list.y) / list.itemH) + glossary.scrollOffset;
     if (idx >= 0 && idx < entries.length) {
       glossary.cursor = idx;
       glossary.detailScroll = 0;
@@ -699,6 +766,37 @@ export function glossaryClickTest(x, y) {
   }
 
   return false;
+}
+
+export function glossaryTouchScroll(x, y, deltaY) {
+  const layout = getGlossaryLayout();
+  if (!layout.isTouch) {
+    glossaryDetailWheel(-deltaY);
+    return;
+  }
+
+  const list = layout.list;
+  const detail = layout.detail;
+  if (x >= list.x && x < list.x + list.w && y >= list.y && y < list.y + list.h) {
+    glossary._listDragAccum = (glossary._listDragAccum || 0) - deltaY;
+    const stepThreshold = Math.max(14, list.itemH * 0.5);
+    const entries = getCategoryEntries(glossary.category);
+    const maxOffset = Math.max(0, entries.length - list.visible);
+    while (glossary._listDragAccum >= stepThreshold && glossary.scrollOffset < maxOffset) {
+      glossary.scrollOffset += 1;
+      glossary._listDragAccum -= stepThreshold;
+    }
+    while (glossary._listDragAccum <= -stepThreshold && glossary.scrollOffset > 0) {
+      glossary.scrollOffset -= 1;
+      glossary._listDragAccum += stepThreshold;
+    }
+    return;
+  }
+
+  if (x >= detail.x && x < detail.x + detail.w && y >= detail.y && y < detail.y + detail.h) {
+    const max = glossary._maxDetailScroll || 0;
+    glossary.detailScroll = Math.max(0, Math.min(max, glossary.detailScroll - deltaY));
+  }
 }
 
 // --- Detail Panel Data ---
@@ -939,20 +1037,18 @@ function drawEvolutionRecipeDiagram(cx, y, recipe, unlocked, panelW) {
 // --- Draw Glossary Screen ---
 export function drawGlossaryScreen() {
   ctx.save();
+  const layout = getGlossaryLayout();
+  const listLayout = layout.list;
+  const detailLayout = layout.detail;
 
   // Background
   ctx.fillStyle = 'rgba(5, 5, 20, 0.95)';
   ctx.fillRect(0, 0, W, H);
 
   // Header
-  drawGlowText('CODEX', W / 2, 26, 'bold 28px ' + FONT, '#ffffff', '#aaaaff', 8);
+  drawGlowText('CODEX', W / 2, layout.isTouch ? 30 : 26, 'bold ' + (layout.isTouch ? 30 : 28) + 'px ' + FONT, '#ffffff', '#aaaaff', 8);
 
   // Category tabs
-  const tabW = 180;
-  const totalTabW = tabW * 4;
-  const tabStartX = (W - totalTabW) / 2;
-  const tabY = 55;
-
   for (let i = 0; i < 4; i++) {
     const entries = getCategoryEntries(i);
     const catName = getCategoryName(i);
@@ -960,30 +1056,55 @@ export function drawGlossaryScreen() {
     const unlockCount = entries.filter(e => isUnlocked(e)).length;
     const isActive = glossary.category === i;
 
-    const tx = tabStartX + i * tabW + tabW / 2;
+    const tabX = layout.isTouch
+      ? layout.tabs.startX + i * (layout.tabs.w + layout.tabs.gap)
+      : layout.tabs.startX + i * layout.tabs.w;
+    const tabY = layout.isTouch
+      ? layout.tabs.startY
+      : layout.tabs.startY - 12;
+    const tx = tabX + layout.tabs.w / 2;
+    const ty = layout.isTouch ? tabY + layout.tabs.h / 2 : layout.tabs.startY;
+    const tabLabel = layout.isTouch
+      ? `${catName} ${unlockCount}/${entries.length}`
+      : `${catName} (${unlockCount}/${entries.length})`;
 
     ctx.save();
-    ctx.font = (isActive ? 'bold ' : '') + '14px ' + FONT;
+    ctx.font = (isActive ? 'bold ' : '') + (layout.isTouch ? '13px ' : '14px ') + FONT;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
 
-    if (isActive) {
-      ctx.fillStyle = catColor;
-      ctx.shadowColor = catColor;
-      ctx.shadowBlur = 6;
-      ctx.fillText(catName + ' (' + unlockCount + '/' + entries.length + ')', tx, tabY);
-      ctx.shadowBlur = 0;
-      // Underline
-      const textW = ctx.measureText(catName + ' (' + unlockCount + '/' + entries.length + ')').width;
-      ctx.strokeStyle = catColor;
-      ctx.lineWidth = 2;
+    if (layout.isTouch) {
+      ctx.fillStyle = isActive ? 'rgba(20, 26, 42, 0.94)' : 'rgba(10, 14, 24, 0.84)';
       ctx.beginPath();
-      ctx.moveTo(tx - textW / 2, tabY + 10);
-      ctx.lineTo(tx + textW / 2, tabY + 10);
+      ctx.roundRect(tabX, tabY, layout.tabs.w, layout.tabs.h, 14);
+      ctx.fill();
+      ctx.strokeStyle = isActive ? catColor : 'rgba(120, 150, 190, 0.18)';
+      ctx.lineWidth = isActive ? 1.8 : 1;
       ctx.stroke();
+      ctx.fillStyle = isActive ? catColor : '#7d8fa7';
+      if (isActive) {
+        ctx.shadowColor = catColor;
+        ctx.shadowBlur = 6;
+      }
+      ctx.fillText(tabLabel, tx, ty);
     } else {
-      ctx.fillStyle = '#555555';
-      ctx.fillText(catName + ' (' + unlockCount + '/' + entries.length + ')', tx, tabY);
+      if (isActive) {
+        ctx.fillStyle = catColor;
+        ctx.shadowColor = catColor;
+        ctx.shadowBlur = 6;
+        ctx.fillText(tabLabel, tx, ty);
+        ctx.shadowBlur = 0;
+        const textW = ctx.measureText(tabLabel).width;
+        ctx.strokeStyle = catColor;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(tx - textW / 2, ty + 10);
+        ctx.lineTo(tx + textW / 2, ty + 10);
+        ctx.stroke();
+      } else {
+        ctx.fillStyle = '#555555';
+        ctx.fillText(tabLabel, tx, ty);
+      }
     }
     ctx.restore();
   }
@@ -992,33 +1113,44 @@ export function drawGlossaryScreen() {
   ctx.strokeStyle = '#222244';
   ctx.lineWidth = 1;
   ctx.beginPath();
-  ctx.moveTo(20, 76);
-  ctx.lineTo(W - 20, 76);
+  ctx.moveTo(20, layout.isTouch ? 102 : 76);
+  ctx.lineTo(W - 20, layout.isTouch ? 102 : 76);
   ctx.stroke();
 
   // Entry list (left panel)
   const entries = getCategoryEntries(glossary.category);
   const catColor = getCategoryColor(glossary.category);
 
-  for (let i = 0; i < LIST_VISIBLE && i + glossary.scrollOffset < entries.length; i++) {
+  if (layout.isTouch) {
+    ctx.save();
+    ctx.fillStyle = 'rgba(8, 12, 24, 0.86)';
+    ctx.beginPath();
+    ctx.roundRect(listLayout.x, listLayout.y, listLayout.w, listLayout.h, 16);
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(120,150,190,0.18)';
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  for (let i = 0; i < listLayout.visible && i + glossary.scrollOffset < entries.length; i++) {
     const idx = i + glossary.scrollOffset;
     const entryId = entries[idx];
     const unlocked = isUnlocked(entryId);
     const isSelected = idx === glossary.cursor;
-    const ey = LIST_TOP + i * LIST_ITEM_H;
+    const ey = listLayout.y + i * listLayout.itemH;
 
     // Selection highlight
     if (isSelected) {
       ctx.save();
       ctx.fillStyle = 'rgba(255, 255, 255, 0.06)';
       ctx.beginPath();
-      ctx.roundRect(LIST_LEFT, ey, LIST_WIDTH, LIST_ITEM_H - 2, 3);
+      ctx.roundRect(listLayout.x + 6, ey + 4, listLayout.w - 12, listLayout.itemH - 8, layout.isTouch ? 10 : 3);
       ctx.fill();
       ctx.strokeStyle = catColor;
       ctx.globalAlpha = 0.4;
       ctx.lineWidth = 1;
       ctx.beginPath();
-      ctx.roundRect(LIST_LEFT, ey, LIST_WIDTH, LIST_ITEM_H - 2, 3);
+      ctx.roundRect(listLayout.x + 6, ey + 4, listLayout.w - 12, listLayout.itemH - 8, layout.isTouch ? 10 : 3);
       ctx.stroke();
       ctx.restore();
     }
@@ -1032,18 +1164,18 @@ export function drawGlossaryScreen() {
       ctx.shadowBlur = 4;
     }
     ctx.beginPath();
-    ctx.arc(LIST_LEFT + 14, ey + LIST_ITEM_H / 2 - 1, 5, 0, Math.PI * 2);
+    ctx.arc(listLayout.x + 18, ey + listLayout.itemH / 2, layout.isTouch ? 6 : 5, 0, Math.PI * 2);
     ctx.fill();
     ctx.shadowBlur = 0;
     ctx.restore();
 
     // Entry name
     ctx.save();
-    ctx.font = '13px ' + FONT;
+    ctx.font = (layout.isTouch ? '14px ' : '13px ') + FONT;
     ctx.textAlign = 'left';
     ctx.textBaseline = 'middle';
     ctx.fillStyle = unlocked ? '#cccccc' : '#444444';
-    ctx.fillText(unlocked ? getEntryName(glossary.category, entryId) : '???', LIST_LEFT + 28, ey + LIST_ITEM_H / 2 - 1);
+    ctx.fillText(unlocked ? getEntryName(glossary.category, entryId) : '???', listLayout.x + 34, ey + listLayout.itemH / 2);
     ctx.restore();
   }
 
@@ -1053,30 +1185,36 @@ export function drawGlossaryScreen() {
     ctx.font = '12px ' + FONT;
     ctx.textAlign = 'center';
     ctx.fillStyle = '#555555';
-    ctx.fillText('\u25B2', LIST_LEFT + LIST_WIDTH / 2, LIST_TOP - 6);
+    ctx.fillText('\u25B2', listLayout.x + listLayout.w / 2, listLayout.y - 6);
     ctx.restore();
   }
-  if (glossary.scrollOffset + LIST_VISIBLE < entries.length) {
+  if (glossary.scrollOffset + listLayout.visible < entries.length) {
     ctx.save();
     ctx.font = '12px ' + FONT;
     ctx.textAlign = 'center';
     ctx.fillStyle = '#555555';
-    ctx.fillText('\u25BC', LIST_LEFT + LIST_WIDTH / 2, LIST_TOP + LIST_VISIBLE * LIST_ITEM_H + 4);
+    ctx.fillText('\u25BC', listLayout.x + listLayout.w / 2, listLayout.y + listLayout.visible * listLayout.itemH + 4);
     ctx.restore();
   }
 
   // Detail panel (right side)
-  const detailX = 380;
-  const detailY = LIST_TOP;
-  const detailW = W - detailX - 20;
-  const detailH = LIST_VISIBLE * LIST_ITEM_H;
+  const detailX = detailLayout.x;
+  const detailY = detailLayout.y;
+  const detailW = detailLayout.w;
+  const detailH = detailLayout.h;
 
   // Panel border
   ctx.save();
+  if (layout.isTouch) {
+    ctx.fillStyle = 'rgba(8, 12, 24, 0.88)';
+    ctx.beginPath();
+    ctx.roundRect(detailX, detailY, detailW, detailH, 16);
+    ctx.fill();
+  }
   ctx.strokeStyle = '#222244';
   ctx.lineWidth = 1;
   ctx.beginPath();
-  ctx.roundRect(detailX, detailY, detailW, detailH, 4);
+  ctx.roundRect(detailX, detailY, detailW, detailH, layout.isTouch ? 16 : 4);
   ctx.stroke();
   ctx.restore();
 
@@ -1097,7 +1235,7 @@ export function drawGlossaryScreen() {
       const cx = detailX + detailW / 2;
 
       const usesGameplayPreview = glossary.category === 0 || glossary.category === 1;
-      const previewRadius = glossary.category === 1 ? 30 : glossary.category === 0 ? 24 : 20;
+      const previewRadius = glossary.category === 1 ? (layout.isTouch ? 24 : 30) : glossary.category === 0 ? (layout.isTouch ? 20 : 24) : 20;
 
       // Icon / preview
       ctx.save();
@@ -1137,7 +1275,7 @@ export function drawGlossaryScreen() {
 
       // Name
       ctx.save();
-      ctx.font = 'bold 18px ' + FONT;
+      ctx.font = 'bold ' + (layout.isTouch ? '20px ' : '18px ') + FONT;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       ctx.fillStyle = unlocked ? '#ffffff' : '#555555';
@@ -1150,7 +1288,7 @@ export function drawGlossaryScreen() {
       // Rarity/Type tag
       if (detail.rarity && unlocked) {
         ctx.save();
-        ctx.font = 'bold 11px ' + FONT;
+        ctx.font = 'bold ' + (layout.isTouch ? '12px ' : '11px ') + FONT;
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
         ctx.fillStyle = detail.rarityColor || '#aaaaaa';
@@ -1172,13 +1310,14 @@ export function drawGlossaryScreen() {
 
       // Description
       ctx.save();
-      ctx.font = '13px ' + FONT;
+      ctx.font = (layout.isTouch ? '14px ' : '13px ') + FONT;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       ctx.fillStyle = unlocked ? '#aaaacc' : '#444444';
+      const descLineH = layout.isTouch ? 18 : 16;
       const descLines = wrapTextMeasure(detail.desc, detailW - 30, ctx);
-      wrapText(detail.desc, cx, dy, detailW - 30, 16);
-      dy += descLines * 16 + 20;
+      wrapText(detail.desc, cx, dy, detailW - 30, descLineH);
+      dy += descLines * descLineH + 20;
       ctx.restore();
 
       // Stats section
@@ -1282,7 +1421,7 @@ export function drawGlossaryScreen() {
           const phase = detail.phases[pi];
           // Phase name
           ctx.save();
-          ctx.font = 'bold 12px ' + FONT;
+          ctx.font = 'bold ' + (layout.isTouch ? '13px ' : '12px ') + FONT;
           ctx.textAlign = 'center';
           ctx.textBaseline = 'middle';
           ctx.fillStyle = '#ffdd44';
@@ -1292,13 +1431,14 @@ export function drawGlossaryScreen() {
 
           // Phase description (word-wrapped)
           ctx.save();
-          ctx.font = '11px ' + FONT;
+          ctx.font = (layout.isTouch ? '12px ' : '11px ') + FONT;
           ctx.textAlign = 'center';
           ctx.textBaseline = 'middle';
           ctx.fillStyle = '#888899';
+          const phaseLineH = layout.isTouch ? 14 : 13;
           const phaseLines = wrapTextMeasure(phase.desc, detailW - 30, ctx);
-          wrapText(phase.desc, cx, dy, detailW - 30, 13);
-          dy += phaseLines * 13;
+          wrapText(phase.desc, cx, dy, detailW - 30, phaseLineH);
+          dy += phaseLines * phaseLineH;
           ctx.restore();
           dy += 8;
         }
@@ -1317,13 +1457,14 @@ export function drawGlossaryScreen() {
         dy += 14;
 
         ctx.save();
-        ctx.font = 'italic 12px ' + FONT;
+        ctx.font = 'italic ' + (layout.isTouch ? '13px ' : '12px ') + FONT;
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
         ctx.fillStyle = '#aaddaa';
+        const tacticsLineH = layout.isTouch ? 15 : 14;
         const tacticsLines = wrapTextMeasure(detail.tactics, detailW - 30, ctx);
-        wrapText(detail.tactics, cx, dy, detailW - 30, 14);
-        dy += tacticsLines * 14;
+        wrapText(detail.tactics, cx, dy, detailW - 30, tacticsLineH);
+        dy += tacticsLines * tacticsLineH;
         ctx.restore();
         dy += 12;
       }
@@ -1401,13 +1542,15 @@ export function drawGlossaryScreen() {
   }
 
   // Footer hints
-  ctx.save();
-  ctx.font = '13px ' + FONT;
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  ctx.fillStyle = '#444444';
-  ctx.fillText('\u2190\u2192 Category  \u2191\u2193 Select  ESC Back', W / 2, H - 18);
-  ctx.restore();
+  if (!layout.isTouch) {
+    ctx.save();
+    ctx.font = '13px ' + FONT;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = '#444444';
+    ctx.fillText('\u2190\u2192 Category  \u2191\u2193 Select  ESC Back', W / 2, H - 18);
+    ctx.restore();
+  }
 
   ctx.restore();
 }

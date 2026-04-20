@@ -30,8 +30,8 @@ import {
   drawWallFlashes, drawParticles, drawCollectRings, drawMultiPopExplosions, drawThunderTrails,
   drawShockwaves, drawAfterimages, drawTapBounceRipples
 } from './systems/particles.js';
-import { setupInput, updateDashCharge } from './systems/input.js';
-import { isTouchUILayout, syncTouchOverlay } from './systems/touch-ui.js';
+import { setupInput, updateDashCharge, clearTouchSticks, cancelDashCharge } from './systems/input.js';
+import { isTouchUILayout, isTouchPortraitBlocked, syncTouchOverlay } from './systems/touch-ui.js';
 import { updateDashPreview, drawDashPreview } from './systems/dash-preview.js';
 import { updateTitleBackground, drawTitleBackground } from './systems/title-bg.js';
 import { drawHUD } from './systems/hud.js';
@@ -298,6 +298,7 @@ export function refreshRelayChamber() {
   G.relayChamber.totalShards = G.meta.shards;
   if (G.relayChamber.quickUpgradeIds.length === 0) {
     G.relayChamber.upgradeIndex = 0;
+    if (G.relayChamber.mobileOverlay === 'quickSpend') G.relayChamber.mobileOverlay = null;
   } else {
     G.relayChamber.upgradeIndex = Math.min(
       G.relayChamber.upgradeIndex || 0,
@@ -322,6 +323,7 @@ export function enterRelayChamber() {
     ctaIndex: 0,
     upgradeIndex: 0,
     loadoutIndex: selectedLoadoutIndex,
+    mobileOverlay: null,
     returnTarget: STATE.RELAY_CHAMBER,
   };
   G._relayHoverAction = null;
@@ -1080,23 +1082,24 @@ function drawStoryIntroScreen() {
 
   let title = 'A distress signal remains inside the grid.';
   let body = 'You are the last courier in range.';
-  let prompt = intro.canAdvance ? (isTouchDev ? 'Tap to answer the signal' : 'Press any key or click to answer the signal') : '';
+  let prompt = intro.canAdvance ? (isTouchDev ? '' : 'Press any key or click to answer the signal') : '';
   let objective = '';
   let accent = '#78eaff';
 
   if (intro.beat === 1) {
     title = 'The core is still active.';
     body = 'Move toward the signal before the link collapses.';
-    objective = 'Move toward the core';
+    if (intro.canAdvance) prompt = isTouchDev ? '' : 'Press W/A/S/D or arrows to move';
+    objective = isTouchDev ? '' : 'Move toward the core';
   } else if (intro.beat === 2) {
     title = 'Its constructs are waking corrupted.';
     body = 'If the core dies here, the grid goes dark with it.';
-    if (intro.canAdvance) prompt = isTouchDev ? 'Tap to continue' : 'Press any key or click to continue';
+    if (intro.canAdvance) prompt = isTouchDev ? '' : 'Press any key or click to continue';
     accent = '#ff86ba';
   } else if (intro.beat === 3) {
     title = '';
     body = isTouchDev
-      ? 'Press the right stick, aim,\nthen release to dash through the construct.'
+      ? 'Press, aim, and release the right stick\nto break through the construct.'
       : 'Hold Space, then release\nto dash through the construct.';
     prompt = '';
     objective = '';
@@ -1104,7 +1107,7 @@ function drawStoryIntroScreen() {
   } else if (intro.beat === 4) {
     title = 'Hold the line. Keep the core alive.';
     body = 'The run starts now.';
-    if (intro.canAdvance) prompt = isTouchDev ? 'Tap to begin' : 'Press any key or click to begin';
+    if (intro.canAdvance) prompt = isTouchDev ? '' : 'Press any key or click to begin';
     accent = '#ff86ba';
   }
 
@@ -1129,9 +1132,9 @@ function drawStoryIntroScreen() {
   ctx.textBaseline = 'middle';
   ctx.fillStyle = '#7f8eac';
   ctx.fillText('Loadout: ' + ((LOADOUTS.find(l => l.id === G.meta.selectedLoadout) || LOADOUTS[0]).name), 58, H - 44);
-  if (intro.skipReady) {
+  if (intro.skipReady && !isTouchDev) {
     ctx.textAlign = 'right';
-    ctx.fillText(isTouchDev ? 'Tap to skip' : 'Esc to skip', W - 40, 34);
+    ctx.fillText('Esc to skip', W - 40, 34);
   }
   ctx.restore();
 
@@ -1175,12 +1178,13 @@ function drawMenuButton(rect, label, opts) {
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   ctx.fillStyle = hovered ? '#ffffff' : '#dbe8ff';
-  ctx.font = 'bold ' + (prominent ? 20 : 16) + 'px ' + FONT;
+  const titleSize = prominent ? (rect.h >= 54 ? 22 : 20) : (rect.h >= 50 ? 18 : 16);
+  ctx.font = 'bold ' + titleSize + 'px ' + FONT;
   ctx.fillText(label, rect.x + rect.w / 2, rect.y + rect.h / 2 + (sublabel ? -6 : 0));
 
   if (sublabel) {
     ctx.fillStyle = hovered ? '#d6f7ff' : '#9eb1cc';
-    ctx.font = '12px ' + FONT;
+    ctx.font = (rect.h >= 50 ? '13px ' : '12px ') + FONT;
     ctx.fillText(sublabel, rect.x + rect.w / 2, rect.y + rect.h / 2 + 14);
   }
   ctx.restore();
@@ -1682,6 +1686,7 @@ events.on('playerDamaged', () => {
 });
 
 events.on('gameOver', () => {
+  clearTouchSticks();
   sfxGameOver();
   stopMusic();
 });
@@ -2477,16 +2482,16 @@ function drawTitleScreen() {
     ctx.shadowColor = `rgba(255, 200, 50, ${shimmerAlpha})`;
     ctx.shadowBlur = shimmerGlow;
     ctx.fillStyle = '#ffdd44';
-    ctx.fillText(shardText, W / 2, H * 0.515);
+    ctx.fillText(shardText, W / 2, isTouchDev ? H * 0.49 : H * 0.515);
     ctx.shadowBlur = 0;
-    ctx.fillText(shardText, W / 2, H * 0.515);
+    ctx.fillText(shardText, W / 2, isTouchDev ? H * 0.49 : H * 0.515);
     ctx.restore();
   }
 
-  const panelW = isTouchDev ? 452 : 420;
+  const panelW = isTouchDev ? 500 : 420;
   const panelX = W / 2 - panelW / 2;
-  const panelY = H * 0.595;
-  const panelH = hasSavedRun() ? (isTouchDev ? 228 : 246) : (isTouchDev ? 184 : 192);
+  const panelY = isTouchDev ? H * 0.575 : H * 0.595;
+  const panelH = hasSavedRun() ? (isTouchDev ? 266 : 246) : (isTouchDev ? 220 : 192);
 
   ctx.save();
   ctx.fillStyle = 'rgba(8, 12, 22, 0.66)';
@@ -2498,7 +2503,7 @@ function drawTitleScreen() {
   ctx.stroke();
   ctx.restore();
 
-  const playRect = { x: W / 2 - 162, y: panelY - 8, w: 324, h: isTouchDev ? 56 : 50 };
+  const playRect = { x: W / 2 - (isTouchDev ? 190 : 162), y: panelY - 8, w: isTouchDev ? 380 : 324, h: isTouchDev ? 62 : 50 };
   G._titlePlayBtnRect = playRect;
   drawMenuButton(playRect, 'Play', {
     hovered: G._titleHoverAction === 'play',
@@ -2509,21 +2514,21 @@ function drawTitleScreen() {
 
   let lowerButtonsY = playRect.y + playRect.h + 12;
   if (hasSavedRun()) {
-    const continueRect = { x: W / 2 - 162, y: lowerButtonsY, w: 324, h: isTouchDev ? 46 : 42 };
+    const continueRect = { x: W / 2 - (isTouchDev ? 190 : 162), y: lowerButtonsY, w: isTouchDev ? 380 : 324, h: isTouchDev ? 52 : 42 };
     G._titleContinueBtnRect = continueRect;
     drawMenuButton(continueRect, 'Continue Run', {
       hovered: G._titleHoverAction === 'continue',
       accent: '#00ffcc',
       sublabel: isTouchDev ? 'Tap to continue' : 'Hotkey C',
     });
-    lowerButtonsY += isTouchDev ? 58 : 54;
+    lowerButtonsY += isTouchDev ? 62 : 54;
   } else {
     G._titleContinueBtnRect = null;
   }
 
-  const smallW = isTouchDev ? 156 : 148;
-  const smallH = isTouchDev ? 44 : 40;
-  const smallGap = 12;
+  const smallW = isTouchDev ? 176 : 148;
+  const smallH = isTouchDev ? 52 : 40;
+  const smallGap = isTouchDev ? 16 : 12;
   const smallX = W / 2 - (smallW * 2 + smallGap) / 2;
   const secondary = [
     { id: 'upgrades', label: 'Upgrades', key: 'U', x: smallX, y: lowerButtonsY, accent: '#ffd24a' },
@@ -2544,7 +2549,7 @@ function drawTitleScreen() {
   // Selected loadout
   const loadout = LOADOUTS.find(l => l.id === G.meta.selectedLoadout) || LOADOUTS[0];
   ctx.save();
-  ctx.font = '13px ' + FONT;
+  ctx.font = (isTouchDev ? '14px ' : '13px ') + FONT;
   ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
   ctx.fillStyle = '#95cfd5';
   ctx.fillText('Current loadout: ' + loadout.name, W / 2, panelY + panelH - 26 + 22);
@@ -2567,11 +2572,13 @@ function drawSettingsScreen() {
   drawGlowText('SETTINGS', W / 2, 80, 'bold 36px ' + FONT, '#ffffff', '#00ffff', 10);
 
   // Layout
-  const sliderW = 300, sliderH = 12, knobR = 10;
+  const sliderW = isTouchDev ? 380 : 300;
+  const sliderH = isTouchDev ? 14 : 12;
+  const knobR = isTouchDev ? 12 : 10;
   const labelX = W / 2 - sliderW / 2;
   const sliderX = labelX;
-  const startY = 180;
-  const rowH = 90;
+  const startY = isTouchDev ? 160 : 180;
+  const rowH = isTouchDev ? 82 : 90;
   const cursor = G._settingsCursor;
 
   const musicVol = getMusicVolume();
@@ -2662,7 +2669,7 @@ function drawSettingsScreen() {
   // --- Mute Toggle ---
   const muteY = startY + rowH * 2 + 10;
   const muteSelected = cursor === 2;
-  const muteBtnW = 200, muteBtnH = 40;
+  const muteBtnW = isTouchDev ? 260 : 200, muteBtnH = isTouchDev ? 46 : 40;
   const muteBtnX = W / 2 - muteBtnW / 2;
   const muteHover = muteSelected || G._settingsHoverMute;
   ctx.save();
@@ -2687,13 +2694,13 @@ function drawSettingsScreen() {
   ctx.fillStyle = muted
     ? (muteHover ? '#ff6688' : '#ff4466')
     : (muteHover ? '#44ffcc' : '#00ffaa');
-  ctx.fillText(muted ? 'Unmute (M)' : 'Mute (M)', muteBtnX + muteBtnW / 2, muteY + muteBtnH / 2);
+  ctx.fillText(isTouchDev ? (muted ? 'Unmute' : 'Mute') : (muted ? 'Unmute (M)' : 'Mute (M)'), muteBtnX + muteBtnW / 2, muteY + muteBtnH / 2);
   ctx.restore();
   G._settingsMuteBtnRect = { x: muteBtnX, y: muteY, w: muteBtnW, h: muteBtnH };
 
   // --- Back Button ---
-  const backY = muteY + muteBtnH + 40;
-  const backBtnW = 160, backBtnH = 40;
+  const backY = muteY + muteBtnH + (isTouchDev ? 28 : 40);
+  const backBtnW = isTouchDev ? 220 : 160, backBtnH = isTouchDev ? 46 : 40;
   const backBtnX = W / 2 - backBtnW / 2;
   const backHover = G._settingsHoverBack;
   ctx.save();
@@ -2716,35 +2723,31 @@ function drawSettingsScreen() {
   ctx.restore();
   G._settingsBackBtnRect = { x: backBtnX, y: backY, w: backBtnW, h: backBtnH };
 
-  // Privacy / terms note for platform review surfaces
-  ctx.save();
-  ctx.font = '12px ' + FONT;
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  ctx.fillStyle = '#6f7f9c';
-  ctx.fillText('Privacy: settings and progress are saved on this device and via platform cloud save where supported.', W / 2, H - 86);
-  ctx.fillText('Terms & privacy details are available on the platform page hosting the game.', W / 2, H - 68);
-  ctx.restore();
+  if (!isTouchDev) {
+    // Privacy / terms note for platform review surfaces
+    ctx.save();
+    ctx.font = '12px ' + FONT;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = '#6f7f9c';
+    ctx.fillText('Privacy: settings and progress are saved on this device and via platform cloud save where supported.', W / 2, H - 86);
+    ctx.fillText('Terms & privacy details are available on the platform page hosting the game.', W / 2, H - 68);
+    ctx.restore();
 
-  // Hint text
-  ctx.save();
-  ctx.font = '13px ' + FONT;
-  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-  ctx.fillStyle = '#444466';
-  ctx.fillText(
-    isTouchDev
-      ? 'Tap sliders to adjust · Tap back to return'
-      : 'W/S or Up/Down to select · A/D or Left/Right to adjust',
-    W / 2,
-    H - 50
-  );
-  ctx.restore();
+    ctx.save();
+    ctx.font = '13px ' + FONT;
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillStyle = '#444466';
+    ctx.fillText('W/S or Up/Down to select · A/D or Left/Right to adjust', W / 2, H - 50);
+    ctx.restore();
+  }
 
   ctx.restore();
 }
 
 // --- Mode Selection Screen ---
 function drawModeSelectScreen() {
+  const isTouchDev = isTouchUILayout();
   ctx.save();
   ctx.fillStyle = '#0a0a0f';
   ctx.fillRect(0, 0, W, H);
@@ -2847,7 +2850,13 @@ function drawModeSelectScreen() {
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   ctx.fillStyle = '#444444';
-  ctx.fillText('A/D or ←→ to select · Enter to confirm · ESC to go back', W / 2, H - 40);
+  ctx.fillText(
+    isTouchDev
+      ? 'Tap a mode to start · Use the top-left Back button to return'
+      : 'A/D or ←→ to select · Enter to confirm · ESC to go back',
+    W / 2,
+    H - 40
+  );
   ctx.restore();
 
   ctx.restore();
@@ -2858,6 +2867,7 @@ function drawRunSummary() {
   ctx.save();
   ctx.fillStyle = '#0a0a0f';
   ctx.fillRect(0, 0, W, H);
+  const isTouchDev = isTouchUILayout();
   const s = G.runSummary;
   if (s && s.isHardcore) {
     ctx.fillStyle = 'rgba(100, 10, 10, 0.3)';
@@ -2902,6 +2912,105 @@ function drawRunSummary() {
     ctx.restore();
   };
 
+  if (isTouchDev) {
+    drawGlowText(s.isVictory ? 'VICTORY' : 'RUN COMPLETE', W / 2, 44, 'bold 30px ' + FONT, '#ffffff', s.isVictory ? '#ffdd44' : '#aaaaff', 10);
+
+    let y = 82;
+    const panelX = 64;
+    const panelW = W - 128;
+
+    drawPanel(panelX, y, panelW, 102, '#7e90d8');
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.font = 'bold 13px ' + FONT;
+    ctx.fillStyle = '#8f9fc5';
+    ctx.fillText('RUN STATS', W / 2, y + 18);
+    ctx.font = '19px ' + FONT;
+    ctx.fillStyle = '#d6def3';
+    ctx.fillText('Waves Survived: ' + s.waves, W / 2, y + 44);
+    ctx.fillText('Enemies Killed: ' + s.kills, W / 2, y + 66);
+    ctx.font = 'bold 24px ' + FONT;
+    ctx.fillStyle = '#58d6ff';
+    ctx.fillText(formatScore(Math.floor(G.runSummaryScoreCounter)), W / 2, y + 86);
+    y += 118;
+
+    if (s.powersHeld.length > 0) {
+      drawPanel(panelX, y, panelW, 84, '#9f7cff');
+      ctx.font = 'bold 13px ' + FONT;
+      ctx.fillStyle = '#9f7cff';
+      ctx.fillText('POWERS EARNED', W / 2, y + 18);
+      const shown = s.powersHeld.slice(0, 4);
+      const slotW = 108;
+      let px = W / 2 - ((shown.length - 1) * slotW) / 2;
+      for (const p of shown) {
+        drawPowerIcon(p.icon, p.shape, px, y + 46, 18);
+        ctx.font = '11px ' + FONT;
+        ctx.fillStyle = '#d6def3';
+        ctx.fillText(p.name, px, y + 70);
+        px += slotW;
+      }
+      y += 100;
+    }
+
+    drawPanel(panelX, y, panelW, 132, '#66cfff');
+    ctx.font = 'bold 13px ' + FONT;
+    ctx.fillStyle = '#8fdcff';
+    ctx.fillText('SHARD BREAKDOWN', W / 2, y + 18);
+    const shardLines = [
+      { text: 'Collected +' + s.collectedShards, color: '#00E5FF' },
+      { text: 'Wave Bonus +' + s.waveShards, color: '#b9c5d6' },
+      { text: 'Score Bonus +' + s.scoreShards, color: '#b9c5d6' },
+    ];
+    if (s.recordShards > 0) shardLines.push({ text: 'New Record +' + s.recordShards, color: '#ffdd44' });
+    if (s.bossShards > 0) shardLines.push({ text: 'Bosses +' + s.bossShards, color: '#ffdd44' });
+    if (s.hasShardMagnet) shardLines.push({ text: 'Shard Magnet x1.25', color: '#ffdd44' });
+    if (s.isHardcore) shardLines.push({ text: 'Hardcore x1.75', color: '#ff8899' });
+    for (let i = 0; i < Math.min(5, shardLines.length); i++) {
+      ctx.font = '15px ' + FONT;
+      ctx.fillStyle = shardLines[i].color;
+      ctx.fillText(shardLines[i].text, W / 2, y + 44 + i * 16);
+    }
+    y += 148;
+
+    const totalPanelH = s.endlessUnlocked ? 92 : 74;
+    drawPanel(panelX, y, panelW, totalPanelH, '#ffdd44');
+    if (s.endlessUnlocked) {
+      ctx.font = 'bold 15px ' + FONT;
+      ctx.fillStyle = '#ffdd44';
+      ctx.fillText('Endless Mode Unlocked!', W / 2, y + 18);
+    }
+    ctx.font = 'bold 28px ' + FONT;
+    ctx.fillStyle = '#ffdd44';
+    ctx.fillText('Shards Earned: ' + Math.floor(G.runSummaryShardCounter), W / 2, y + (s.endlessUnlocked ? 48 : 32));
+    ctx.font = '16px ' + FONT;
+    ctx.fillStyle = '#9da6b7';
+    ctx.fillText('Total Shards: ' + G.meta.shards, W / 2, y + (s.endlessUnlocked ? 72 : 54));
+
+    for (const p of G.summaryParticles) {
+      ctx.save();
+      ctx.globalAlpha = p.alpha;
+      ctx.fillStyle = p.color;
+      ctx.shadowColor = p.color;
+      ctx.shadowBlur = 4;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    }
+
+    if (G.runSummaryReady) {
+      const contPulse = 0.4 + 0.6 * Math.sin(Date.now() / 600 * Math.PI);
+      ctx.save();
+      ctx.globalAlpha = contPulse;
+      ctx.font = '15px ' + FONT;
+      ctx.fillStyle = '#7f8a9f';
+      ctx.fillText(canShowRelayChamber() ? 'Tap to return to the relay' : 'Tap to continue', W / 2, H - 20);
+      ctx.restore();
+    }
+    ctx.restore();
+    return;
+  }
+
   // --- Title ---
   let y = 48;
   if (s.isVictory) {
@@ -2919,17 +3028,17 @@ function drawRunSummary() {
   drawSeparator(y); y += 10;
   drawSectionLabel('Run Stats', y); y += 14;
   const statsPanelY = y - 4;
-  drawPanel(W * 0.24, statsPanelY, W * 0.52, 78, '#7e90d8');
+  drawPanel(W * 0.22, statsPanelY, W * 0.56, 84, '#7e90d8');
 
   ctx.font = '18px ' + FONT;
   ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
   ctx.fillStyle = '#d6def3';
-  ctx.fillText('Waves Survived: ' + s.waves, W / 2, statsPanelY + 22);
-  ctx.fillText('Enemies Killed: ' + s.kills, W / 2, statsPanelY + 44);
+  ctx.fillText('Waves Survived: ' + s.waves, W / 2, statsPanelY + 24);
+  ctx.fillText('Enemies Killed: ' + s.kills, W / 2, statsPanelY + 46);
   ctx.fillStyle = '#58d6ff';
   ctx.font = 'bold 20px ' + FONT;
-  ctx.fillText('Final Score: ' + formatScore(Math.floor(G.runSummaryScoreCounter)), W / 2, statsPanelY + 64);
-  y = statsPanelY + 88;
+  ctx.fillText('Final Score: ' + formatScore(Math.floor(G.runSummaryScoreCounter)), W / 2, statsPanelY + 68);
+  y = statsPanelY + 92;
 
   // === Section 2: Powers Earned ===
   if (s.powersHeld.length > 0) {
@@ -2937,10 +3046,10 @@ function drawRunSummary() {
     drawSectionLabel('Powers Earned', y); y += 14;
     const powersPanelY = y - 4;
     const powersPanelH = s.powersHeld.length <= 2 ? 70 : 82;
-    drawPanel(W * 0.16, powersPanelY, W * 0.68, powersPanelH, '#9f7cff');
+    drawPanel(W * 0.22, powersPanelY, W * 0.56, powersPanelH, '#9f7cff');
 
     const iconR = 18; // 36px diameter
-    const slotW = 68; // space per power (icon + label)
+    const slotW = Math.min(68, ((W * 0.56) - 48) / Math.max(1, s.powersHeld.length)); // space per power (icon + label)
     const totalPW = s.powersHeld.length * slotW;
     let px = W / 2 - totalPW / 2 + slotW / 2;
     const iconCY = powersPanelY + (s.powersHeld.length <= 2 ? 24 : 26);
@@ -3080,6 +3189,7 @@ function drawRunSummary() {
 }
 
 function drawRelayChamber() {
+  const isTouchDev = isTouchUILayout();
   ctx.save();
   ctx.fillStyle = '#07111a';
   ctx.fillRect(0, 0, W, H);
@@ -3113,6 +3223,208 @@ function drawRelayChamber() {
     tank: { accent: '#81f3c2', glow: '#5bd8a0', tint: 'rgba(91,216,160,0.16)', title: 'Safer, slower build' },
     hardcore: { accent: '#ff8492', glow: '#ff5c6f', tint: 'rgba(255,92,111,0.17)', title: 'One life challenge' },
   }[previewLoadout.id] || { accent: '#6ff7ff', glow: '#6ff7ff', tint: 'rgba(111,247,255,0.16)', title: 'Balanced starter' };
+
+  if (isTouchDev) {
+    const mobilePanel = (x, y, w, h, accent, alpha = 0.84) => {
+      ctx.save();
+      ctx.fillStyle = `rgba(9, 14, 28, ${alpha})`;
+      ctx.beginPath();
+      ctx.roundRect(x, y, w, h, 18);
+      ctx.fill();
+      ctx.strokeStyle = accent;
+      ctx.globalAlpha = 0.24;
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+      ctx.restore();
+    };
+    const mobilePill = (x, y, w, label, value, accent) => {
+      ctx.save();
+      ctx.fillStyle = 'rgba(10, 16, 30, 0.76)';
+      ctx.beginPath();
+      ctx.roundRect(x, y, w, 30, 15);
+      ctx.fill();
+      ctx.strokeStyle = accent;
+      ctx.globalAlpha = 0.28;
+      ctx.stroke();
+      ctx.globalAlpha = 1;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.font = '11px ' + FONT;
+      ctx.fillStyle = '#8fa7c8';
+      ctx.fillText(label, x + w / 2, y + 10);
+      ctx.font = 'bold 14px ' + FONT;
+      ctx.fillStyle = accent;
+      ctx.fillText(value, x + w / 2, y + 21);
+      ctx.restore();
+    };
+    G._relayActionRects = {};
+    G._relayUpgradeRects = [];
+    G._relayLoadoutRects = [];
+    const mobileOverlay = chamber.mobileOverlay || null;
+
+    drawGlowText('RELAY CHAMBER', W / 2, 40, 'bold 24px ' + FONT, '#ffffff', '#6ff7ff', 8);
+    mobilePill(60, 66, 200, 'BANKED', '+' + chamber.shardGain, '#ffdd66');
+    mobilePill(540, 66, 200, 'TOTAL', String(chamber.totalShards), '#6ff7ff');
+
+    const contentTop = 126;
+    const contentBottom = H - 72;
+    const loreH = 62;
+    const runH = 60;
+    const midRowH = 50;
+    const lowerRowH = 58;
+    const totalBlockH = loreH + 18 + runH + 18 + midRowH + 16 + lowerRowH;
+    const blockTop = Math.round(contentTop + Math.max(0, (contentBottom - contentTop - totalBlockH) / 2));
+    const loreY = blockTop;
+    const runY = loreY + loreH + 18;
+    const midRowY = runY + runH + 18;
+    const lowerRowY = midRowY + midRowH + 16;
+
+    mobilePanel(54, loreY, 692, loreH, '#7ecbff');
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'top';
+    ctx.font = 'bold 14px ' + FONT;
+    ctx.fillStyle = '#dfeaff';
+    ctx.fillText('The relay steadies your shell.', 74, loreY + 14);
+    ctx.font = '12px ' + FONT;
+    ctx.fillStyle = '#98abc4';
+    ctx.fillText(lore[0], 74, loreY + 34);
+
+    const runItBackRect = { x: 54, y: runY, w: 692, h: runH };
+    const upgradesRect = { x: 54, y: midRowY, w: 338, h: midRowH };
+    const menuRect = { x: 408, y: midRowY, w: 338, h: midRowH };
+    const loadoutRect = { x: 54, y: lowerRowY, w: 338, h: lowerRowH };
+    const quickRect = { x: 408, y: lowerRowY, w: 338, h: lowerRowH };
+    G._relayActionRects = { runback: runItBackRect, upgrades: upgradesRect, loadout: loadoutRect, quick: quickRect, menu: menuRect };
+    drawMenuButton(runItBackRect, 'Start Another Run', {
+      hovered: G._relayHoverAction === 'runback',
+      accent: '#6ff7ff',
+      sublabel: '',
+      prominent: true,
+    });
+    drawMenuButton(upgradesRect, 'Upgrades', {
+      hovered: G._relayHoverAction === 'upgrades',
+      accent: '#ffd86f',
+      sublabel: '',
+    });
+    drawMenuButton(menuRect, 'Main Menu', {
+      hovered: G._relayHoverAction === 'menu',
+      accent: '#9ab4ff',
+      sublabel: '',
+    });
+    drawMenuButton(loadoutRect, 'Loadout', {
+      hovered: G._relayHoverAction === 'loadout' || mobileOverlay === 'loadouts',
+      accent: previewTheme.accent,
+      sublabel: '',
+    });
+    drawMenuButton(quickRect, 'Quick Spend', {
+      hovered: G._relayHoverAction === 'quick' || mobileOverlay === 'quickSpend',
+      accent: '#ffd86f',
+      sublabel: '',
+    });
+
+    if (mobileOverlay) {
+      ctx.save();
+      ctx.fillStyle = 'rgba(4, 8, 18, 0.58)';
+      ctx.fillRect(0, 0, W, H);
+      ctx.restore();
+
+      const overlayH = mobileOverlay === 'loadouts' ? 290 : 334;
+      const overlayX = 54;
+      const overlayW = 692;
+      const overlayY = Math.round((H - overlayH) / 2);
+      mobilePanel(overlayX, overlayY, overlayW, overlayH, mobileOverlay === 'loadouts' ? previewTheme.accent : '#ffd86f', 0.96);
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.font = 'bold 18px ' + FONT;
+      ctx.fillStyle = mobileOverlay === 'loadouts' ? previewTheme.accent : '#ffd86f';
+      ctx.fillText(mobileOverlay === 'loadouts' ? 'SELECT LOADOUT' : 'QUICK SPEND', W / 2, overlayY + 28);
+
+      if (mobileOverlay === 'loadouts') {
+        ctx.font = '12px ' + FONT;
+        ctx.fillStyle = '#b7c6db';
+        ctx.fillText('Current frame: ' + selectedLoadout.name, W / 2, overlayY + 52);
+        for (let i = 0; i < LOADOUTS.length; i++) {
+          const loadout = LOADOUTS[i];
+          const x = overlayX + 28 + (i % 2) * 320;
+          const y = overlayY + 78 + Math.floor(i / 2) * 86;
+          const w = 316;
+          const h = 72;
+          const unlocked = isLoadoutUnlocked(G.meta, loadout.id);
+          const selected = G.meta.selectedLoadout === loadout.id;
+          const focused = focusSection === 'loadouts' && chamber.loadoutIndex === i;
+          const hovered = G._relayHoverLoadoutIndex === i;
+          G._relayLoadoutRects[i] = { x, y, w, h };
+          ctx.save();
+          ctx.fillStyle = unlocked ? 'rgba(16, 24, 40, 0.96)' : 'rgba(22, 24, 36, 0.96)';
+          ctx.beginPath();
+          ctx.roundRect(x, y, w, h, 14);
+          ctx.fill();
+          ctx.strokeStyle = selected ? previewTheme.accent : ((focused || hovered) ? 'rgba(200,225,255,0.42)' : 'rgba(120,150,190,0.16)');
+          ctx.lineWidth = selected || focused || hovered ? 2 : 1;
+          ctx.stroke();
+          ctx.textAlign = 'left';
+          ctx.textBaseline = 'middle';
+          ctx.font = 'bold 16px ' + FONT;
+          ctx.fillStyle = unlocked ? '#ffffff' : '#aeb8c8';
+          ctx.fillText(loadout.name, x + 18, y + 26);
+          ctx.font = '12px ' + FONT;
+          ctx.fillStyle = selected ? previewTheme.accent : '#8fa2bc';
+          ctx.fillText(unlocked ? (selected ? 'Equipped' : 'Tap to equip') : 'Locked', x + 18, y + 48);
+          ctx.restore();
+        }
+      } else if (mobileOverlay === 'quickSpend') {
+        const quickUpgradeIds = chamber.quickUpgradeIds || [];
+        if (quickUpgradeIds.length === 0) {
+          ctx.font = '14px ' + FONT;
+          ctx.fillStyle = '#a7b6cb';
+          ctx.fillText('No quick upgrades left here.', W / 2, overlayY + 148);
+        } else {
+          for (let i = 0; i < quickUpgradeIds.length; i++) {
+            const upgrade = UPGRADES.find(u => u.id === quickUpgradeIds[i]);
+            if (!upgrade) continue;
+            const tierUnlocked = isTierUnlocked(G.meta, upgrade.tier);
+            const affordable = canPurchaseUpgrade(G.meta, upgrade.id);
+            const rowX = overlayX + 24;
+            const rowY = overlayY + 66 + i * 58;
+            const rowW = overlayW - 48;
+            const rowH = 48;
+            const focused = focusSection === 'upgrades' && chamber.upgradeIndex === i;
+            const hovered = G._relayHoverUpgradeIndex === i;
+            G._relayUpgradeRects[i] = { x: rowX, y: rowY, w: rowW, h: rowH };
+            ctx.save();
+            ctx.fillStyle = affordable ? 'rgba(31, 39, 58, 0.96)' : 'rgba(18, 24, 40, 0.94)';
+            ctx.beginPath();
+            ctx.roundRect(rowX, rowY, rowW, rowH, 12);
+            ctx.fill();
+            ctx.strokeStyle = affordable
+              ? ((focused || hovered) ? '#ffd86f' : 'rgba(255,216,111,0.32)')
+              : ((focused || hovered) ? '#8aa3c4' : 'rgba(138,163,196,0.22)');
+            ctx.lineWidth = 1.5;
+            ctx.stroke();
+            ctx.textAlign = 'left';
+            ctx.textBaseline = 'top';
+            ctx.font = 'bold 14px ' + FONT;
+            ctx.fillStyle = '#ffffff';
+            ctx.fillText(upgrade.name, rowX + 16, rowY + 10);
+            ctx.font = '11px ' + FONT;
+            ctx.fillStyle = tierUnlocked ? '#92a5bf' : '#71819a';
+            let effectText = affordable ? upgrade.effect : (tierUnlocked ? upgrade.effect : 'Unlock the previous tier first.');
+            while (ctx.measureText(effectText).width > rowW - 190 && effectText.length > 0) effectText = effectText.slice(0, -1);
+            if (effectText !== upgrade.effect && tierUnlocked) effectText += '…';
+            ctx.fillText(effectText, rowX + 16, rowY + 28);
+            ctx.textAlign = 'right';
+            ctx.textBaseline = 'middle';
+            ctx.font = 'bold 12px ' + FONT;
+            ctx.fillStyle = affordable ? '#ffd86f' : '#8fa2bc';
+            ctx.fillText(affordable ? (upgrade.cost + ' ✦') : (tierUnlocked ? 'Need more' : 'Tier locked'), rowX + rowW - 16, rowY + rowH / 2);
+            ctx.restore();
+          }
+        }
+      }
+    }
+    ctx.restore();
+    return;
+  }
 
   const drawPanel = (x, y, w, h, accent, alpha = 0.78) => {
     ctx.save();
@@ -3837,6 +4149,7 @@ function drawTransitionRoom() {
 
 // --- Upgrade Screen ---
 function drawUpgradeScreen() {
+  const isTouchDev = isTouchUILayout();
   ctx.save();
   ctx.fillStyle = '#0a0a0f';
   ctx.fillRect(0, 0, W, H);
@@ -3863,7 +4176,147 @@ function drawUpgradeScreen() {
   ctx.shadowBlur = 0;
   ctx.fillText('✦ ' + G.meta.shards + (G.meta.shards === 1 ? ' Shard' : ' Shards'), W / 2, 70);
 
+  if (isTouchDev) {
+    const panelX = 30;
+    const panelY = 102;
+    const panelW = W - 60;
+    const panelH = H - 138;
+    const innerX = panelX + 12;
+    const innerY = panelY + 14;
+    const innerW = panelW - 24;
+    const innerH = panelH - 28;
+    const rowH = 52;
+    const rowGap = 10;
+    const tierGap = 16;
+
+    const drawUpgradePanel = (x, y, w, h, accent) => {
+      ctx.save();
+      ctx.fillStyle = 'rgba(9, 14, 28, 0.84)';
+      ctx.beginPath();
+      ctx.roundRect(x, y, w, h, 18);
+      ctx.fill();
+      ctx.strokeStyle = accent;
+      ctx.globalAlpha = 0.22;
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+      ctx.restore();
+    };
+
+    drawUpgradePanel(panelX, panelY, panelW, panelH, '#7ecbff');
+    G._upgradeRowRects = [];
+    G._upgradeScrollPanelRect = { x: panelX, y: panelY, w: panelW, h: panelH };
+
+    let contentHeight = 0;
+    for (let tier = 1; tier <= 4; tier++) {
+      contentHeight += 24;
+      contentHeight += UPGRADES.filter(u => u.tier === tier).length * (rowH + rowGap);
+      contentHeight += tierGap;
+    }
+    G._upgradeScrollMax = Math.max(0, contentHeight - innerH);
+    if (G.upgradeScrollY > G._upgradeScrollMax) G.upgradeScrollY = G._upgradeScrollMax;
+    if (G.upgradeScrollY < 0) G.upgradeScrollY = 0;
+
+    let contentY = 0;
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(innerX, innerY, innerW, innerH);
+    ctx.clip();
+
+    for (let tier = 1; tier <= 4; tier++) {
+      const tierUnlocked = isTierUnlocked(G.meta, tier);
+      const prevTier = tier - 1;
+      const neededFromPrev = TIER_REQUIREMENTS[tier] || 0;
+      const unlockedFromPrev = prevTier > 0 ? getUnlockedCountForTier(G.meta, prevTier) : 0;
+      const headerY = innerY + contentY - G.upgradeScrollY;
+
+      ctx.font = 'bold 15px ' + FONT;
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'top';
+      ctx.fillStyle = tierUnlocked ? '#7fe7ff' : '#687791';
+      ctx.fillText('TIER ' + tier, innerX + 8, headerY);
+      if (!tierUnlocked) {
+        ctx.font = '12px ' + FONT;
+        ctx.fillStyle = '#8091a8';
+        ctx.fillText(unlockedFromPrev + '/' + neededFromPrev + ' from Tier ' + prevTier, innerX + 92, headerY + 1);
+      }
+      contentY += 24;
+
+      const tierUpgrades = UPGRADES.filter(u => u.tier === tier);
+      for (let i = 0; i < tierUpgrades.length; i++) {
+        const u = tierUpgrades[i];
+        const owned = G.meta.unlocks.includes(u.id);
+        const affordable = canPurchaseUpgrade(G.meta, u.id);
+        const isSelected = G.upgradeCursor === UPGRADES.indexOf(u);
+        const statusColor = owned ? '#44ff88' : (affordable ? '#ffdd44' : (tierUnlocked ? '#8ea0b8' : '#657286'));
+        const rowY = innerY + contentY - G.upgradeScrollY;
+        if (rowY + rowH >= innerY - 12 && rowY <= innerY + innerH + 12) {
+          G._upgradeRowRects.push({ x: innerX, y: rowY, w: innerW, h: rowH, upgradeId: u.id, index: UPGRADES.indexOf(u) });
+        }
+
+        ctx.save();
+        ctx.fillStyle = isSelected ? 'rgba(32, 39, 54, 0.96)' : 'rgba(18, 24, 36, 0.88)';
+        ctx.beginPath();
+        ctx.roundRect(innerX, rowY, innerW, rowH, 14);
+        ctx.fill();
+        ctx.strokeStyle = isSelected ? 'rgba(160,220,255,0.36)' : 'rgba(120,150,190,0.14)';
+        ctx.lineWidth = isSelected ? 1.5 : 1;
+        ctx.stroke();
+        ctx.fillStyle = statusColor;
+        ctx.beginPath();
+        ctx.roundRect(innerX + 10, rowY + 8, 5, rowH - 16, 3);
+        ctx.fill();
+
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'top';
+        ctx.font = 'bold 14px ' + FONT;
+        ctx.fillStyle = owned ? '#c8ffe1' : '#ffffff';
+        let nameText = owned ? ('✓ ' + u.name) : u.name;
+        while (ctx.measureText(nameText).width > innerW - 160 && nameText.length > 0) nameText = nameText.slice(0, -1);
+        ctx.fillText(nameText, innerX + 24, rowY + 10);
+
+        ctx.font = '12px ' + FONT;
+        ctx.fillStyle = tierUnlocked ? '#92a5bf' : '#71819a';
+        let effectText = owned ? u.effect : (tierUnlocked ? u.effect : 'Unlock the previous tier to reveal this upgrade.');
+        while (ctx.measureText(effectText).width > innerW - 170 && effectText.length > 0) effectText = effectText.slice(0, -1);
+        if (effectText !== u.effect && tierUnlocked) effectText += '…';
+        ctx.fillText(effectText, innerX + 24, rowY + 28);
+
+        ctx.textAlign = 'right';
+        ctx.textBaseline = 'middle';
+        ctx.font = 'bold 12px ' + FONT;
+        ctx.fillStyle = statusColor;
+        ctx.fillText(owned ? 'Owned' : (tierUnlocked ? (u.cost + ' ✦') : 'Locked'), innerX + innerW - 16, rowY + rowH / 2);
+        ctx.restore();
+        contentY += rowH + rowGap;
+      }
+      contentY += tierGap;
+    }
+
+    ctx.restore();
+
+    if (G._upgradeScrollMax > 0) {
+      if (G.upgradeScrollY > 0) {
+        const topFade = ctx.createLinearGradient(0, panelY, 0, panelY + 20);
+        topFade.addColorStop(0, 'rgba(9,14,28,0.96)');
+        topFade.addColorStop(1, 'rgba(9,14,28,0)');
+        ctx.fillStyle = topFade;
+        ctx.fillRect(panelX + 2, panelY + 2, panelW - 4, 26);
+      }
+      if (G.upgradeScrollY < G._upgradeScrollMax) {
+        const bottomFade = ctx.createLinearGradient(0, panelY + panelH - 24, 0, panelY + panelH);
+        bottomFade.addColorStop(0, 'rgba(9,14,28,0)');
+        bottomFade.addColorStop(1, 'rgba(9,14,28,0.96)');
+        ctx.fillStyle = bottomFade;
+        ctx.fillRect(panelX + 2, panelY + panelH - 26, panelW - 4, 24);
+      }
+    }
+
+    ctx.restore();
+    return;
+  }
+
   let y = 100;
+  G._upgradeRowRects = [];
   for (let tier = 1; tier <= 4; tier++) {
     const tierUnlocked = isTierUnlocked(G.meta, tier);
     const prevTier = tier - 1;
@@ -3896,6 +4349,7 @@ function drawUpgradeScreen() {
       const owned = G.meta.unlocks.includes(u.id);
       const affordable = canPurchaseUpgrade(G.meta, u.id);
       const isSelected = G.upgradeCursor === UPGRADES.indexOf(u);
+      G._upgradeRowRects.push({ x: 50, y: y - 10, w: W - 100, h: 22, upgradeId: u.id, index: UPGRADES.indexOf(u) });
 
       // Row background for selected — highlighted pill
       if (isSelected) {
@@ -3953,6 +4407,7 @@ function drawUpgradeScreen() {
 
 // --- Loadout Screen ---
 function drawLoadoutScreen() {
+  const isTouchDev = isTouchUILayout();
   ctx.save();
   ctx.fillStyle = '#0a0a0f';
   ctx.fillRect(0, 0, W, H);
@@ -3983,6 +4438,90 @@ function drawLoadoutScreen() {
   ctx.fillStyle = '#8cbac7';
   ctx.fillText('Preview: ' + previewLoadout.name, W / 2, 92);
   ctx.restore();
+
+  if (isTouchDev) {
+    G._loadoutCardRects = [];
+    const cardX = 54;
+    const cardW = W - 108;
+    const cardH = 98;
+    const gapY = 10;
+    const startY = 110;
+
+    for (let i = 0; i < LOADOUTS.length; i++) {
+      const l = LOADOUTS[i];
+      const y = startY + i * (cardH + gapY);
+      const unlocked = isLoadoutUnlocked(G.meta, l.id);
+      const selected = G.meta.selectedLoadout === l.id;
+      const focused = G.loadoutCursor === i || G._loadoutHoverIndex === i;
+      const accent = l.id === 'hardcore' ? '#ff6a7b' : (selected ? '#6ff7ff' : '#9ab8d8');
+      const status = unlocked ? (selected ? 'Equipped' : 'Tap to equip') : (l.id === 'hardcore' ? (canPurchaseHardcore(G.meta) ? 'Tap to unlock' : 'Locked') : 'Locked');
+      G._loadoutCardRects[i] = { x: cardX, y, w: cardW, h: cardH };
+
+      ctx.save();
+      if (focused) {
+        ctx.shadowColor = accent;
+        ctx.shadowBlur = 12;
+      }
+      ctx.fillStyle = unlocked ? 'rgba(16, 22, 38, 0.93)' : 'rgba(24, 22, 32, 0.93)';
+      ctx.beginPath();
+      ctx.roundRect(cardX, y, cardW, cardH, 18);
+      ctx.fill();
+      ctx.shadowBlur = 0;
+      ctx.strokeStyle = selected ? accent : (focused ? 'rgba(200,225,255,0.42)' : 'rgba(120,150,190,0.16)');
+      ctx.lineWidth = selected || focused ? 2 : 1;
+      ctx.stroke();
+      ctx.fillStyle = accent;
+      ctx.beginPath();
+      ctx.roundRect(cardX + 8, y + 10, 5, cardH - 20, 2);
+      ctx.fill();
+
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'middle';
+      ctx.font = 'bold 22px ' + FONT;
+      ctx.fillStyle = unlocked ? '#ffffff' : '#c8d0dc';
+      ctx.fillText(l.name, cardX + 24, y + 24);
+      ctx.font = '12px ' + FONT;
+      ctx.fillStyle = accent;
+      ctx.fillText((loadoutThemes[l.id] || loadoutThemes.standard).title, cardX + 24, y + 44);
+
+      const stats = [
+        { label: 'HP', value: String(l.hp) },
+        { label: 'STA', value: String(l.stamina) },
+        { label: 'SCORE', value: 'x' + l.scoreMod },
+      ];
+      for (let s = 0; s < stats.length; s++) {
+        const bx = cardX + 24 + s * 90;
+        ctx.fillStyle = 'rgba(255,255,255,0.05)';
+        ctx.beginPath();
+        ctx.roundRect(bx, y + 56, 78, 26, 9);
+        ctx.fill();
+        ctx.textAlign = 'center';
+        ctx.font = '10px ' + FONT;
+        ctx.fillStyle = '#8fa2bc';
+        ctx.fillText(stats[s].label, bx + 39, y + 65);
+        ctx.font = 'bold 11px ' + FONT;
+        ctx.fillStyle = '#ffffff';
+        ctx.fillText(stats[s].value, bx + 39, y + 77);
+      }
+
+      ctx.textAlign = 'right';
+      ctx.font = 'bold 12px ' + FONT;
+      ctx.fillStyle = unlocked ? (selected ? accent : '#dbe4f1') : (l.id === 'hardcore' && canPurchaseHardcore(G.meta) ? '#ffdd66' : '#9aa5b4');
+      ctx.fillText(status, cardX + cardW - 24, y + 26);
+      ctx.textAlign = 'left';
+      ctx.font = '11px ' + FONT;
+      ctx.fillStyle = unlocked ? '#c8d4e4' : '#9da8b7';
+      const kit = l.powers.length > 0 ? l.powers.join(', ') : (l.id === 'hardcore' ? 'No powers. One life.' : 'No starting powers.');
+      const kitLines = wrapRelayText(kit, 250, 2);
+      for (let k = 0; k < kitLines.length; k++) {
+        ctx.fillText(kitLines[k], cardX + 320, y + 60 + k * 13);
+      }
+      ctx.restore();
+    }
+
+    ctx.restore();
+    return;
+  }
 
   const cardW = 216;
   const cardH = 156;
@@ -4749,13 +5288,111 @@ function draw() {
 
     // Title
     drawGlowText('PAUSED', W / 2, 60, 'bold 48px ' + FONT, '#ffffff', '#00ffff', 12);
+    const isTouchDev = isTouchUILayout();
+    const player = G.player;
 
+    if (isTouchDev) {
+      const panelX = 56;
+      const panelW = W - 112;
+      const powerPanelY = 106;
+      const shownPowers = player.powers.slice(0, 6);
+      const hiddenPowers = Math.max(0, player.powers.length - shownPowers.length);
+      const powerRows = Math.max(1, Math.ceil(shownPowers.length / 2));
+      const powerPanelH = 58 + powerRows * 40 + (hiddenPowers > 0 ? 18 : 0);
+
+      ctx.save();
+      ctx.fillStyle = 'rgba(10, 14, 24, 0.84)';
+      ctx.beginPath();
+      ctx.roundRect(panelX, powerPanelY, panelW, powerPanelH, 16);
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(110, 150, 200, 0.2)';
+      ctx.lineWidth = 1.2;
+      ctx.stroke();
+      ctx.font = 'bold 13px ' + FONT;
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'top';
+      ctx.fillStyle = '#d6e4ff';
+      ctx.fillText('POWERS', panelX + 18, powerPanelY + 14);
+      for (let i = 0; i < shownPowers.length; i++) {
+        const power = shownPowers[i];
+        const def = POWER_DEFS[power.id];
+        const evoRecipe = !def ? EVOLUTION_RECIPES.find(r => r.id === power.id) : null;
+        const name = def ? def.name : (evoRecipe ? evoRecipe.name : power.id);
+        const color = def ? def.icon : (evoRecipe ? evoRecipe.icon : '#ffffff');
+        const col = i % 2;
+        const row = Math.floor(i / 2);
+        const chipX = panelX + 18 + col * 330;
+        const chipY = powerPanelY + 38 + row * 40;
+        ctx.fillStyle = 'rgba(255,255,255,0.05)';
+        ctx.beginPath();
+        ctx.roundRect(chipX, chipY, 312, 32, 10);
+        ctx.fill();
+        drawPowerIcon(color, def ? def.shape : (evoRecipe?.shape || 'circle'), chipX + 16, chipY + 16, 8);
+        ctx.font = 'bold 12px ' + FONT;
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'middle';
+        ctx.fillStyle = '#ffffff';
+        ctx.fillText(name, chipX + 32, chipY + 12);
+        ctx.font = '10px ' + FONT;
+        ctx.fillStyle = '#8fa2bc';
+        ctx.fillText('Level ' + power.level, chipX + 32, chipY + 22);
+      }
+      if (hiddenPowers > 0) {
+        ctx.font = '11px ' + FONT;
+        ctx.textAlign = 'center';
+        ctx.fillStyle = '#7f93b1';
+        ctx.fillText('+' + hiddenPowers + ' more powers active this run', W / 2, powerPanelY + powerPanelH - 10);
+      }
+      ctx.restore();
+
+      let sigilRowY = powerPanelY + powerPanelH + 16;
+      if (player.sigils && player.sigils.length) {
+        ctx.save();
+        ctx.font = 'bold 12px ' + FONT;
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'middle';
+        ctx.fillStyle = '#9db1cb';
+        ctx.fillText('SIGILS', panelX + 4, sigilRowY);
+        for (let i = 0; i < player.sigils.length; i++) {
+          const sigilId = player.sigils[i];
+          const cx = panelX + 64 + i * 34;
+          if (sigilId === 'broodbreaker') drawPowerIcon('#ffb26f', 'diamond', cx, sigilRowY, 8);
+          else if (sigilId === 'feedback') drawPowerIcon('#8dd8ff', 'bolt', cx, sigilRowY, 8);
+        }
+        ctx.restore();
+        sigilRowY += 18;
+      }
+
+      const btnY = sigilRowY + 10;
+      const btnW = 324;
+      const btnH = 52;
+      const btnGap = 12;
+      const rowX = W / 2 - (btnW * 2 + btnGap) / 2;
+      const pauseButtons = [
+        { id: 'resume', label: 'Resume', x: rowX, y: btnY, accent: '#00ffaa' },
+        { id: 'settings', label: 'Settings', x: rowX + btnW + btnGap, y: btnY, accent: '#9ab4ff' },
+        { id: 'glossary', label: 'Codex', x: rowX, y: btnY + btnH + 12, accent: '#c98cff' },
+        { id: 'quit', label: 'Quit Run', x: rowX + btnW + btnGap, y: btnY + btnH + 12, accent: '#ff6688', danger: true },
+      ];
+      for (const btn of pauseButtons) {
+        const rect = { x: btn.x, y: btn.y, w: btnW, h: btnH };
+        G['_pause' + btn.id.charAt(0).toUpperCase() + btn.id.slice(1) + 'BtnRect'] = rect;
+        drawMenuButton(rect, btn.label, {
+          hovered: G._pauseHoverAction === btn.id,
+          accent: btn.accent,
+          sublabel: '',
+          danger: !!btn.danger,
+        });
+      }
+
+      ctx.restore();
+      return;
+    }
     // Power inventory grid — 2 columns, widened cards
     const cardW = 370, cardH = 48, gapX = 12, gapY = 6;
     const gridW = cardW * 2 + gapX; // 752px
     const gridX = (W - gridW) / 2;  // 24px
     const gridY = 120;
-    const player = G.player;
     const totalSlots = Math.max(player.powers.length, MAX_POWER_SLOTS);
     const visibleSlots = Math.min(totalSlots, 12);
 
@@ -4909,10 +5546,10 @@ function draw() {
   // 21. Tutorial overlay (outside shake)
   if (G.state === STATE.TUTORIAL) {
     const isTouchDev = isTouchUILayout();
-    const panelX = 110;
-    const panelY = 142;
-    const panelW = 580;
-    const panelH = 246;
+    const panelX = isTouchDev ? 96 : 110;
+    const panelY = isTouchDev ? 144 : 142;
+    const panelW = isTouchDev ? 608 : 580;
+    const panelH = isTouchDev ? 208 : 246;
     const cardW = 170;
     const cardH = 84;
     const cardGap = 16;
@@ -4942,6 +5579,40 @@ function draw() {
     ctx.globalAlpha = 0.10;
     ctx.drawImage(gridCanvas, panelX, panelY, panelW, panelH, panelX, panelY, panelW, panelH);
     ctx.globalAlpha = 1;
+
+    if (isTouchDev) {
+      drawGlowText('MOVE LEFT. DASH RIGHT.', W / 2, panelY + 40, 'bold 30px ' + FONT, '#78f3ff', '#78f3ff', 14);
+      ctx.font = '17px ' + FONT;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillStyle = '#c1d0e5';
+      ctx.fillText('The gutter controls teach the run.', W / 2, panelY + 80);
+      ctx.font = '15px ' + FONT;
+      ctx.fillStyle = '#9fb0c8';
+      ctx.fillText('Left stick steers the courier.', W / 2, panelY + 112);
+      ctx.fillText('Right stick charges, aims, and releases your dash.', W / 2, panelY + 136);
+
+      ctx.save();
+      ctx.fillStyle = 'rgba(9, 18, 34, 0.92)';
+      ctx.beginPath();
+      ctx.roundRect(panelX + 64, panelY + panelH - 54, panelW - 128, 38, 18);
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(120, 243, 255, 0.34)';
+      ctx.lineWidth = 1.25;
+      ctx.stroke();
+      ctx.restore();
+
+      const tutPulse = 0.5 + 0.5 * Math.sin(Date.now() / 500 * Math.PI);
+      ctx.save();
+      ctx.globalAlpha = tutPulse;
+      ctx.font = 'bold 17px ' + FONT;
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillStyle = '#9fdfff';
+      ctx.fillText('Tap to start', W / 2, panelY + panelH - 35);
+      ctx.restore();
+      ctx.restore();
+      return;
+    }
 
     drawGlowText('HOW TO PLAY', W / 2, panelY + 40, 'bold 32px ' + FONT, '#78f3ff', '#78f3ff', 16);
     ctx.font = '15px ' + FONT;
@@ -5167,10 +5838,16 @@ function gameLoop(now) {
   let dt = (now - G.lastTime) / 1000;
   G.lastTime = now;
   dt = Math.min(dt, 0.05);
-  updateTransition(dt);
-  update(dt);
+  const orientationBlocked = isTouchPortraitBlocked();
+  if (orientationBlocked) {
+    clearTouchSticks();
+    if (G.player?.dashCharging) cancelDashCharge(true);
+  } else {
+    updateTransition(dt);
+    update(dt);
+  }
   draw();
-  drawTransition();
+  if (!orientationBlocked) drawTransition();
 }
 
 // --- Initialize ---

@@ -6,6 +6,7 @@ import { G } from '../state.js';
 import { ctx, drawGlowText } from '../canvas.js';
 import { getEnemyCount } from '../systems/wave.js';
 import { drawPowerIcon } from './cards.js';
+import { isTouchUILayout } from './touch-ui.js';
 
 function drawHudPanel(x, y, w, h, glow) {
   ctx.save();
@@ -22,20 +23,24 @@ function drawHudPanel(x, y, w, h, glow) {
 }
 
 export function drawHUD() {
+  if (isTouchUILayout()) return;
   const player = G.player;
   const hasSigils = !!(player.sigils && player.sigils.length);
+  const orbSpacing = 32;
+  const orbClusterW = player.maxHp > 0 ? (player.maxHp * orbSpacing - 8) : 0;
+  const leftPanelW = Math.max(184, 32 + orbClusterW);
   const leftPanelH = G.isHardcore
     ? (hasSigils ? 134 : 112)
     : (hasSigils ? 114 : 92);
   const waveTextY = hasSigils ? 83 : 65;
   const waveBarY = hasSigils ? 103 : 85;
 
-  drawHudPanel(8, 8, 184, leftPanelH, 'rgba(0, 220, 255, 0.24)');
+  drawHudPanel(8, 8, leftPanelW, leftPanelH, 'rgba(0, 220, 255, 0.24)');
   drawHudPanel(W - 176, 8, 168, G.combo >= 2 ? 108 : 88, 'rgba(255, 120, 180, 0.20)');
 
   // HP orbs — top-left
   for (let i = 0; i < player.maxHp; i++) {
-    const ox = 16 + 12 + i * (24 + 8);
+    const ox = 16 + 12 + i * orbSpacing;
     const oy = 16 + 12;
     ctx.save();
     if (i < player.hp) {
