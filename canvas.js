@@ -32,13 +32,19 @@ gridCanvas.height = H;
 // --- Resize ---
 export function resize() {
   const r = W / H;
-  let cw = window.innerWidth, ch = window.innerHeight;
+  const viewport = window.visualViewport;
+  let cw = viewport?.width || window.innerWidth;
+  let ch = viewport?.height || window.innerHeight;
   if (cw / ch > r) { cw = ch * r; } else { ch = cw / r; }
   C.style.width = cw + 'px';
   C.style.height = ch + 'px';
 }
 
 window.addEventListener('resize', resize);
+if (window.visualViewport) {
+  window.visualViewport.addEventListener('resize', resize);
+  window.visualViewport.addEventListener('scroll', resize);
+}
 resize();
 
 // --- Draw Helpers ---

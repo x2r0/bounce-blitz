@@ -43,6 +43,12 @@ function resumeFromPause() {
   G.state = G._prevState || STATE.PLAYING;
 }
 
+function openPauseMenu() {
+  if (G.player?.dashCharging) cancelDashCharge(true);
+  G._prevState = G.state;
+  G.state = STATE.PAUSED;
+}
+
 function hitTest(x, y, rect) {
   return rect && x >= rect.x && x <= rect.x + rect.w && y >= rect.y && y <= rect.y + rect.h;
 }
@@ -546,7 +552,18 @@ export function isTouchActive() {
 function getDashDirection() {
   const player = G.player;
 
-  // --- Mobile: joystick direction ---
+  // --- Mobile: active dash touch aims directly ---
+  if (player.dashCharging && player.dashChargeTouchId !== null) {
+    const dx = G.mouseX - player.x;
+    const dy = G.mouseY - player.y;
+    const d = Math.sqrt(dx * dx + dy * dy);
+    if (d < AIM_CANCEL_RADIUS) {
+      return { bdx: 0, bdy: 0, cancel: true };
+    }
+    return { bdx: dx / d, bdy: dy / d, cancel: false };
+  }
+
+  // --- Mobile: joystick direction fallback ---
   if (isTouchActive()) {
     if (G.joystick.active && (G.joystick.dx !== 0 || G.joystick.dy !== 0)) {
       const jLen = Math.sqrt(G.joystick.dx * G.joystick.dx + G.joystick.dy * G.joystick.dy);
@@ -970,6 +987,12 @@ export function setupInput() {
         if (card >= 0) { sfxUIClick(); confirmModeSelect(card); }
         return;
       }
+      if ((G.state === STATE.PLAYING || G.state === STATE.WAVE_BREAK || G.state === STATE.BOSS_FIGHT) &&
+          hitTest(p.x, p.y, G._mobilePauseBtnRect)) {
+        sfxUIClick();
+        openPauseMenu();
+        return;
+      }
       if (G.state === STATE.STORY_INTRO) {
         if ((G.storyIntro?.beat === 1 || G.storyIntro?.beat === 3) && p.x < W / 2 && !G.joystick.active) {
           G.joystick.active = true;
@@ -1023,6 +1046,8 @@ export function setupInput() {
       else if (p.x >= W / 2) {
         if ((G.state === STATE.PLAYING || G.state === STATE.BOSS_FIGHT) && startDashCharge()) {
           G.player.dashChargeTouchId = t.identifier;
+          G.mouseX = p.x;
+          G.mouseY = p.y;
           G.tapBounceRipples.push({ x: p.x, y: p.y, r: 0, maxR: 30, life: 0.3, maxLife: 0.3 });
         }
       }
@@ -1050,6 +1075,10 @@ export function setupInput() {
           G.joystick.dx = (jdx / jDist) * clamped;
           G.joystick.dy = (jdy / jDist) * clamped;
         }
+      } else if (G.player && G.player.dashCharging && t.identifier === G.player.dashChargeTouchId) {
+        const p = canvasCoords(t.clientX, t.clientY);
+        G.mouseX = p.x;
+        G.mouseY = p.y;
       }
     }
   }, { passive: false });
@@ -1404,13 +1433,9 @@ export function setupInput() {
     }
 
     // --- Pause ---
-    if ((key === 'p' || key === 'escape') && (G.state === STATE.PLAYING || G.state === STATE.PAUSED || G.state === STATE.BOSS_FIGHT)) {
+    if ((key === 'p' || key === 'escape') && (G.state === STATE.PLAYING || G.state === STATE.WAVE_BREAK || G.state === STATE.PAUSED || G.state === STATE.BOSS_FIGHT)) {
       if (G.state === STATE.PAUSED) { resumeFromPause(); }
-      else {
-        // Cancel any active dash charge on pause (refund drain)
-        if (G.player && G.player.dashCharging) cancelDashCharge(true);
-        G._prevState = G.state; G.state = STATE.PAUSED;
-      }
+      else openPauseMenu();
       e.preventDefault();
       return;
     }

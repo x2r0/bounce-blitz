@@ -2713,6 +2713,16 @@ function drawSettingsScreen() {
   ctx.restore();
   G._settingsBackBtnRect = { x: backBtnX, y: backY, w: backBtnW, h: backBtnH };
 
+  // Privacy / terms note for platform review surfaces
+  ctx.save();
+  ctx.font = '12px ' + FONT;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillStyle = '#6f7f9c';
+  ctx.fillText('Privacy: settings and progress are saved on this device and via platform cloud save where supported.', W / 2, H - 86);
+  ctx.fillText('Terms & privacy details are available on the platform page hosting the game.', W / 2, H - 68);
+  ctx.restore();
+
   // Hint text
   ctx.save();
   ctx.font = '13px ' + FONT;
@@ -4554,7 +4564,7 @@ function draw() {
     const ttAlpha = Math.min(1, G.dashTooltipTimer / 0.3);
     const isTouchDev = 'ontouchstart' in window;
     const ttText = isTouchDev
-      ? 'NEW: Aim your dash with the joystick!'
+      ? 'NEW: Drag on the right side to aim your dash!'
       : 'NEW: Aim your dash with the mouse!';
     ctx.save();
     ctx.globalAlpha = ttAlpha * 0.9;
@@ -4864,8 +4874,13 @@ function draw() {
     ctx.fillText('Controls', W / 2, helpY + 10);
     ctx.font = '12px ' + FONT;
     ctx.fillStyle = '#7e93b6';
-    ctx.fillText('WASD move  •  Mouse aim  •  Space dash/bounce', W / 2, helpY + 30);
-    ctx.fillText('P pause  •  S settings  •  G codex  •  Q save and quit', W / 2, helpY + 46);
+    if (isTouchDev) {
+      ctx.fillText('Left thumb joystick  •  Right thumb aim + release dash', W / 2, helpY + 30);
+      ctx.fillText('Tap the pause button  •  Codex / settings / quit from pause', W / 2, helpY + 46);
+    } else {
+      ctx.fillText('WASD move  •  Mouse aim  •  Space dash/bounce', W / 2, helpY + 30);
+      ctx.fillText('P pause  •  S settings  •  G codex  •  Q save and quit', W / 2, helpY + 46);
+    }
     ctx.restore();
 
     ctx.restore();
@@ -4928,7 +4943,7 @@ function draw() {
         title: 'BREAK THROUGH',
         accent: '#ffd966',
         lines: isTouchDev
-          ? ['Hold right side', 'Release to dash-kill']
+          ? ['Drag right thumb to aim', 'Release to dash-kill']
           : ['Hold Space', 'Release to dash-kill'],
       },
       {

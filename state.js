@@ -183,6 +183,7 @@ export const G = {
   _relayHoverLoadoutIndex: -1,
   _transitionOptionRects: [],
   _transitionContinueRect: null,
+  _mobilePauseBtnRect: null,
 
   // --- Story intro ---
   storyIntro: null,
@@ -402,6 +403,7 @@ export function resetGameState() {
   G._relayHoverLoadoutIndex = -1;
   G._transitionOptionRects = [];
   G._transitionContinueRect = null;
+  G._mobilePauseBtnRect = null;
 
   G.currentArcIndex = -1;
   G.ambientParticles = [];

@@ -584,25 +584,40 @@ export function drawPlayer() {
       }
 
       // Mobile: chevron direction indicator on expanding ring
-      if (isTouchActive() && G.joystick.active && (G.joystick.dx !== 0 || G.joystick.dy !== 0)) {
-        const jLen = Math.sqrt(G.joystick.dx * G.joystick.dx + G.joystick.dy * G.joystick.dy);
-        const jdx = G.joystick.dx / jLen, jdy = G.joystick.dy / jLen;
-        const chevronX = jdx * ringRadius;
-        const chevronY = jdy * ringRadius;
-        const angle = Math.atan2(jdy, jdx);
-        const chevSize = 8;
-        ctx.save();
-        ctx.translate(chevronX, chevronY);
-        ctx.rotate(angle);
-        ctx.fillStyle = glowColor;
-        ctx.globalAlpha = ringAlpha;
-        ctx.beginPath();
-        ctx.moveTo(chevSize, 0);
-        ctx.lineTo(-chevSize * 0.5, -chevSize * 0.6);
-        ctx.lineTo(-chevSize * 0.5, chevSize * 0.6);
-        ctx.closePath();
-        ctx.fill();
-        ctx.restore();
+      if (isTouchActive()) {
+        let adx = 0;
+        let ady = 0;
+        if (player.dashCharging && player.dashChargeTouchId !== null) {
+          const dx = G.mouseX - player.x;
+          const dy = G.mouseY - player.y;
+          const d = Math.sqrt(dx * dx + dy * dy);
+          if (d >= 0.001) {
+            adx = dx / d;
+            ady = dy / d;
+          }
+        } else if (G.joystick.active && (G.joystick.dx !== 0 || G.joystick.dy !== 0)) {
+          const jLen = Math.sqrt(G.joystick.dx * G.joystick.dx + G.joystick.dy * G.joystick.dy);
+          adx = G.joystick.dx / jLen;
+          ady = G.joystick.dy / jLen;
+        }
+        if (adx !== 0 || ady !== 0) {
+          const chevronX = adx * ringRadius;
+          const chevronY = ady * ringRadius;
+          const angle = Math.atan2(ady, adx);
+          const chevSize = 8;
+          ctx.save();
+          ctx.translate(chevronX, chevronY);
+          ctx.rotate(angle);
+          ctx.fillStyle = glowColor;
+          ctx.globalAlpha = ringAlpha;
+          ctx.beginPath();
+          ctx.moveTo(chevSize, 0);
+          ctx.lineTo(-chevSize * 0.5, -chevSize * 0.6);
+          ctx.lineTo(-chevSize * 0.5, chevSize * 0.6);
+          ctx.closePath();
+          ctx.fill();
+          ctx.restore();
+        }
       }
 
       // Dash projection line — multi-segment bounced path
