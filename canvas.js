@@ -1,7 +1,7 @@
 'use strict';
 
 import { W, H, FONT } from './config.js';
-import { getFxBlur } from './systems/runtime-flags.js';
+import { getFxBlur, IS_EMBEDDED, IS_SAFARI } from './systems/runtime-flags.js';
 
 export const C = document.getElementById('c');
 export const ctx = C.getContext('2d', { alpha: false, desynchronized: true }) || C.getContext('2d');
@@ -13,7 +13,12 @@ if (typeof C.setAttribute === 'function') {
 
 function getDeviceCanvasScale() {
   if (typeof window === 'undefined') return 1;
-  return Math.max(1, Math.min(window.devicePixelRatio || 1, 2));
+  const dpr = Math.max(1, window.devicePixelRatio || 1);
+  const isTouchDevice = ('ontouchstart' in window) || (navigator.maxTouchPoints || 0) > 0;
+  const cap = isTouchDevice
+    ? (IS_SAFARI && IS_EMBEDDED ? 2.5 : 3)
+    : 2;
+  return Math.max(1, Math.min(dpr, cap));
 }
 
 function syncCanvasResolution() {
@@ -63,8 +68,8 @@ export function resize() {
   let cw = viewport?.width || window.innerWidth;
   let ch = viewport?.height || window.innerHeight;
   if (cw / ch > r) { cw = ch * r; } else { ch = cw / r; }
-  C.style.width = cw + 'px';
-  C.style.height = ch + 'px';
+  C.style.width = Math.round(cw) + 'px';
+  C.style.height = Math.round(ch) + 'px';
 }
 
 window.addEventListener('resize', resize);
