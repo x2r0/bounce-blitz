@@ -11,6 +11,8 @@
  */
 
 import platformSDK from './platform-sdk.js';
+import { setForcedMuted } from './systems/audio.js';
+import { installCrazyGamesDataStorage, migrateLocalStorageToCrazyGamesData } from './systems/storage.js';
 
 /** Resolved CrazyGames SDK handle (set during init). */
 let cg = null;
@@ -50,6 +52,14 @@ const crazyGamesAdapter = {
       const sdk = await loadSDKScript();
       await sdk.init();
       cg = sdk;
+      if (installCrazyGamesDataStorage(cg.data)) {
+        const migratedKeys = migrateLocalStorageToCrazyGamesData();
+        if (migratedKeys > 0) {
+          console.log(`[platform] Migrated ${migratedKeys} local save keys into CrazyGames Data`);
+        }
+      } else {
+        console.warn('[platform] CrazyGames Data module unavailable; falling back to browser localStorage');
+      }
       cg.game.loadingStart();
       console.log('[platform] CrazyGames SDK initialised');
     } catch (e) {
@@ -78,9 +88,17 @@ const crazyGamesAdapter = {
     if (!cg) return Promise.resolve();
     return new Promise((resolve) => {
       cg.ad.requestAd('midgame', {
-        adStarted:  () => { /* game is already paused during wave break */ },
-        adFinished: () => resolve(),
-        adError:    () => resolve(),
+        adStarted:  () => {
+          setForcedMuted(true);
+        },
+        adFinished: () => {
+          setForcedMuted(false);
+          resolve();
+        },
+        adError:    () => {
+          setForcedMuted(false);
+          resolve();
+        },
       });
     });
   },

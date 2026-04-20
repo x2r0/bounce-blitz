@@ -10,7 +10,7 @@ import { rand, dist, lerp, formatScore, formatTime } from './utils.js';
 import { events } from './eventbus.js';
 import { G, resetGameState } from './state.js';
 import { ctx, gridCanvas, drawGlowText } from './canvas.js';
-import { hasSavedRun, clearRunState, loadSettings } from './systems/save.js';
+import { hasSavedRun, clearRunState, loadSettings, loadHighScore } from './systems/save.js';
 
 import { updatePlayer, damagePlayer, drawPlayer } from './entities/player.js';
 import { spawnEnemy, updateEnemies, killEnemy, hitEnemy, drawEnemies } from './entities/enemy.js';
@@ -50,7 +50,7 @@ import {
   getTransitionOptionChips,
   createTransitionRoom,
 } from './systems/transition-room.js';
-import { calculateRunBonusShards, applyShardMagnetBonus, saveMeta, getCheapestLockedUpgrade, UPGRADES, canPurchaseUpgrade, purchaseUpgrade, LOADOUTS, isLoadoutUnlocked, isTierUnlocked, canPurchaseHardcore, purchaseHardcore, getHardcoreWaveMilestoneBonus, getUnlockedCountForTier, TIER_REQUIREMENTS, recordRunAnalytics, recordStoryIntroSkip } from './systems/meta.js';
+import { calculateRunBonusShards, applyShardMagnetBonus, loadMeta, saveMeta, getCheapestLockedUpgrade, UPGRADES, canPurchaseUpgrade, purchaseUpgrade, LOADOUTS, isLoadoutUnlocked, isTierUnlocked, canPurchaseHardcore, purchaseHardcore, getHardcoreWaveMilestoneBonus, getUnlockedCountForTier, TIER_REQUIREMENTS, recordRunAnalytics, recordStoryIntroSkip } from './systems/meta.js';
 import { spawnCombatText } from './systems/combat-text.js';
 import {
   onEnemyKilled as boostOnEnemyKilled,
@@ -5129,31 +5129,43 @@ function gameLoop(now) {
 }
 
 // --- Initialize ---
-setupCrazyGames();          // detect & activate CrazyGames adapter (no-op elsewhere)
-setupPoki();                // detect & activate Poki adapter (no-op elsewhere)
-setupGameDistribution();    // detect & activate GameDistribution adapter (no-op elsewhere)
-platformSDK.init();
-platformSDK.loadingProgress(0.5);
-setupInput();
-setupGlossaryTracking();
-// Restore saved audio settings
-const savedSettings = loadSettings();
-if (savedSettings) {
-  if (typeof savedSettings.musicVolume === 'number') setMusicVolume(savedSettings.musicVolume);
-  if (typeof savedSettings.sfxVolume === 'number') setSfxVolume(savedSettings.sfxVolume);
-  if (savedSettings.muted) toggleMute();
-}
-platformSDK.loadingProgress(1);
-platformSDK.loadingDone();
-G.state = STATE.TITLE;
+async function bootstrap() {
+  setupCrazyGames();          // detect & activate CrazyGames adapter (no-op elsewhere)
+  setupPoki();                // detect & activate Poki adapter (no-op elsewhere)
+  setupGameDistribution();    // detect & activate GameDistribution adapter (no-op elsewhere)
 
-// Start title music on very first user gesture (browsers require gesture for AudioContext)
-function _onFirstGesture() {
-  ensureTitleMusicStarted();
-  document.removeEventListener('pointerdown', _onFirstGesture);
-  document.removeEventListener('keydown', _onFirstGesture);
-}
-document.addEventListener('pointerdown', _onFirstGesture, { once: true });
-document.addEventListener('keydown', _onFirstGesture, { once: true });
+  await Promise.resolve(platformSDK.init());
+  platformSDK.loadingProgress(0.5);
 
-requestAnimationFrame(gameLoop);
+  // Reload persisted state after platform storage is ready.
+  G.meta = loadMeta();
+  G.highScore = loadHighScore();
+
+  setupInput();
+  setupGlossaryTracking();
+
+  // Restore saved audio settings
+  const savedSettings = loadSettings();
+  if (savedSettings) {
+    if (typeof savedSettings.musicVolume === 'number') setMusicVolume(savedSettings.musicVolume);
+    if (typeof savedSettings.sfxVolume === 'number') setSfxVolume(savedSettings.sfxVolume);
+    if (savedSettings.muted) toggleMute();
+  }
+
+  platformSDK.loadingProgress(1);
+  platformSDK.loadingDone();
+  G.state = STATE.TITLE;
+
+  // Start title music on very first user gesture (browsers require gesture for AudioContext)
+  function _onFirstGesture() {
+    ensureTitleMusicStarted();
+    document.removeEventListener('pointerdown', _onFirstGesture);
+    document.removeEventListener('keydown', _onFirstGesture);
+  }
+  document.addEventListener('pointerdown', _onFirstGesture, { once: true });
+  document.addEventListener('keydown', _onFirstGesture, { once: true });
+
+  requestAnimationFrame(gameLoop);
+}
+
+bootstrap();

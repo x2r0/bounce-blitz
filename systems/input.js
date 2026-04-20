@@ -25,6 +25,7 @@ import { FX_THUNDER_TRAIL_LIMIT, pushCapped } from './runtime-flags.js';
 import { ensureTitleMusicStarted, sfxDash, sfxUIClick, sfxCardPick, startMusic, stopMusic, setBossMusic, setMusicState,
   getMusicVolume, getSfxVolume, isMuted, setMusicVolume, setSfxVolume, toggleMute } from './audio.js';
 import { saveRunState, hasSavedRun, clearRunState, saveSettings } from './save.js';
+import { getStorageItem, setStorageItem } from './storage.js';
 import { openGlossary, closeGlossary, glossaryInput, glossaryClickTest, glossaryDetailWheel } from './glossary.js';
 
 function quitRun() {
@@ -597,11 +598,11 @@ function performDash(bdx, bdy, t) {
   sfxDash();
 
   // First-3-dashes "NEW" tooltip
-  if (!localStorage.getItem(DASH_TOOLTIP_STORAGE_KEY)) {
+  if (!getStorageItem(DASH_TOOLTIP_STORAGE_KEY)) {
     G.dashTooltipCount++;
     G.dashTooltipTimer = DASH_TOOLTIP_DURATION;
     if (G.dashTooltipCount >= DASH_TOOLTIP_COUNT) {
-      localStorage.setItem(DASH_TOOLTIP_STORAGE_KEY, '1');
+      setStorageItem(DASH_TOOLTIP_STORAGE_KEY, '1');
     }
   }
 

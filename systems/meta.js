@@ -1,6 +1,6 @@
 'use strict';
 
-const META_KEY = 'bounceblitz_meta';
+import { META_KEY, getStorageItem, setStorageItem } from './storage.js';
 
 const ANALYTICS_LOADOUT_IDS = ['standard', 'glass_cannon', 'tank', 'hardcore'];
 
@@ -68,7 +68,7 @@ const DEFAULT_META = {
 
 export function loadMeta() {
   try {
-    const raw = localStorage.getItem(META_KEY);
+    const raw = getStorageItem(META_KEY);
     if (raw) {
       const parsed = JSON.parse(raw);
       return { ...DEFAULT_META, ...parsed, analytics: normalizeAnalytics(parsed.analytics) };
@@ -79,7 +79,7 @@ export function loadMeta() {
 
 export function saveMeta(meta) {
   meta.analytics = normalizeAnalytics(meta.analytics);
-  localStorage.setItem(META_KEY, JSON.stringify(meta));
+  setStorageItem(META_KEY, JSON.stringify(meta));
 }
 
 export function recordRunAnalytics(meta, run) {

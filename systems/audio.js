@@ -8,6 +8,7 @@ let masterGain = null;
 let sfxGain = null;
 let musicGain = null;
 let _muted = false;
+let _forcedMuted = false;
 let _volume = 0.5;
 let _musicVolume = 0.5;
 let _sfxVolume = 0.5;
@@ -43,13 +44,19 @@ export function ensureTitleMusicStarted() {
 
 export function setVolume(v) {
   _volume = v;
-  if (masterGain) masterGain.gain.value = _muted ? 0 : v;
+  if (masterGain) masterGain.gain.value = (_muted || _forcedMuted) ? 0 : v;
 }
 
 export function toggleMute() {
   _muted = !_muted;
-  if (masterGain) masterGain.gain.value = _muted ? 0 : _volume;
+  if (masterGain) masterGain.gain.value = (_muted || _forcedMuted) ? 0 : _volume;
   return _muted;
+}
+
+export function setForcedMuted(v) {
+  _forcedMuted = !!v;
+  if (masterGain) masterGain.gain.value = (_muted || _forcedMuted) ? 0 : _volume;
+  return _forcedMuted;
 }
 
 export function setMusicVolume(v) {
@@ -65,6 +72,7 @@ export function setSfxVolume(v) {
 export function getMusicVolume() { return _musicVolume; }
 export function getSfxVolume() { return _sfxVolume; }
 export function isMuted() { return _muted; }
+export function isForcedMuted() { return _forcedMuted; }
 
 // --- Helper: play a tone ---
 function _disconnectNode(node) {
