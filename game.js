@@ -5077,6 +5077,15 @@ export function transitionToRunSummary() {
     telemetry: G.runTelemetry,
   };
 
+  if (G.runTelemetry && !G.runTelemetry.leaderboardSubmitted) {
+    G.runTelemetry.leaderboardSubmitted = true;
+    void platformSDK.submitLeaderboardScore(G.score, {
+      mode: G.runSummary.mode,
+      victory: G.runSummary.isVictory,
+      wave: G.wave,
+    });
+  }
+
   // Apply shards to meta
   G.meta.shards += totalShards;
   G.meta.totalShardsEarned += totalShards;

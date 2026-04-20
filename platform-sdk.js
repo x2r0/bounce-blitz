@@ -33,6 +33,16 @@ const noopAdapter = {
   adBreak()         { return Promise.resolve(); },
 
   /**
+   * Submit a final run score to a platform leaderboard when supported.
+   * @param {number} _score
+   * @param {Object} _meta
+   * @returns {Promise<boolean>}
+   */
+  submitLeaderboardScore(/** @type {number} */ _score, /** @type {Object} */ _meta) {
+    return Promise.resolve(false);
+  },
+
+  /**
    * Report an analytics / game event.
    * @param {string} name  — event name (e.g. 'score', 'waveReached', 'death')
    * @param {Object} data  — event payload
@@ -59,6 +69,7 @@ const platformSDK = {
   gameplayStart()           { adapter.gameplayStart(); },
   gameplayStop()            { adapter.gameplayStop(); },
   adBreak()                 { return adapter.adBreak(); },
+  submitLeaderboardScore(score, meta = {}) { return adapter.submitLeaderboardScore(score, meta); },
   event(name, data)         { adapter.event(name, data); },
 };
 

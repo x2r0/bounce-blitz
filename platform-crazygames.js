@@ -13,6 +13,10 @@
 import platformSDK from './platform-sdk.js';
 import { setForcedMuted } from './systems/audio.js';
 import { installCrazyGamesDataStorage, migrateLocalStorageToCrazyGamesData } from './systems/storage.js';
+import {
+  CRAZYGAMES_LEADERBOARD_CONFIG,
+  submitCrazyGamesLeaderboardScore,
+} from './systems/crazygames-leaderboard.js';
 
 /** Resolved CrazyGames SDK handle (set during init). */
 let cg = null;
@@ -101,6 +105,25 @@ const crazyGamesAdapter = {
         },
       });
     });
+  },
+
+  async submitLeaderboardScore(score, meta = {}) {
+    if (!cg) return false;
+    try {
+      const submitted = await submitCrazyGamesLeaderboardScore(cg, score, CRAZYGAMES_LEADERBOARD_CONFIG);
+      if (submitted) {
+        console.log('[CrazyGames] leaderboard score submitted', {
+          score,
+          mode: meta.mode || 'story',
+          victory: !!meta.victory,
+          wave: meta.wave || 0,
+        });
+      }
+      return submitted;
+    } catch (e) {
+      console.warn('[platform] CrazyGames leaderboard submit failed:', e);
+      return false;
+    }
   },
 
   event(name, data) {

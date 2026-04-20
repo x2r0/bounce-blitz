@@ -326,6 +326,7 @@ export function resetGameState() {
     damageTaken: 0,
     revivesUsed: 0,
     waveReached: 0,
+    leaderboardSubmitted: false,
     killSources: { player: 0, multipop: 0, chainLightning: 0, nuke: 0, broodbreakerSigil: 0, feedbackSigil: 0, other: 0 },
   };
 
@@ -452,8 +453,10 @@ export function restoreRunState() {
     damageTaken: 0,
     revivesUsed: saved.usedSecondWind ? 1 : 0,
     waveReached: saved.wave || 0,
+    leaderboardSubmitted: false,
     killSources: { player: 0, multipop: 0, chainLightning: 0, nuke: 0, broodbreakerSigil: 0, feedbackSigil: 0, other: 0 },
   };
+  G.runTelemetry.leaderboardSubmitted = !!G.runTelemetry.leaderboardSubmitted;
   G.runTelemetry.killSources = {
     player: 0,
     multipop: 0,
