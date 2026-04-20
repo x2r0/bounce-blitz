@@ -47,6 +47,7 @@ export const G = {
   collectFlashAlpha: 0,
   waveClearFlashTimer: 0,
   joystick: { active: false, touchId: null, cx: 0, cy: 0, tx: 0, ty: 0, dx: 0, dy: 0 },
+  dashStick: { active: false, touchId: null, cx: 0, cy: 0, tx: 0, ty: 0, dx: 0, dy: 0 },
   mouseX: W / 2, mouseY: 0,  // mouse position in canvas coords (for dash aiming)
   dashAimCancelFlashTimer: 0, // red ring flash when mouse too close to ball center
   dashTooltipTimer: 0,         // countdown for "NEW" dash tooltip display
@@ -405,6 +406,8 @@ export function resetGameState() {
   G._transitionOptionRects = [];
   G._transitionContinueRect = null;
   G._mobilePauseBtnRect = null;
+  G.joystick = { active: false, touchId: null, cx: 0, cy: 0, tx: 0, ty: 0, dx: 0, dy: 0 };
+  G.dashStick = { active: false, touchId: null, cx: 0, cy: 0, tx: 0, ty: 0, dx: 0, dy: 0 };
 
   G.currentArcIndex = -1;
   G.ambientParticles = [];

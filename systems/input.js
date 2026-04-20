@@ -27,6 +27,7 @@ import { ensureTitleMusicStarted, sfxDash, sfxUIClick, sfxCardPick, startMusic, 
 import { saveRunState, hasSavedRun, clearRunState, saveSettings } from './save.js';
 import { getStorageItem, setStorageItem } from './storage.js';
 import { openGlossary, closeGlossary, glossaryInput, glossaryClickTest, glossaryDetailWheel } from './glossary.js';
+import { isTouchUILayout, bindTouchPauseButton } from './touch-ui.js';
 
 function quitRun() {
   // Skip save if no meaningful progress (wave 1, no kills)
@@ -45,6 +46,8 @@ function resumeFromPause() {
 
 function openPauseMenu() {
   if (G.player?.dashCharging) cancelDashCharge(true);
+  clearMoveStick();
+  clearDashStick();
   G._prevState = G.state;
   G.state = STATE.PAUSED;
 }
@@ -56,6 +59,67 @@ function hitTest(x, y, rect) {
 function canvasCoords(cx, cy) {
   const rect = C.getBoundingClientRect();
   return { x: (cx - rect.left) / rect.width * W, y: (cy - rect.top) / rect.height * H };
+}
+
+function canvasCoordsOrNull(cx, cy) {
+  const rect = C.getBoundingClientRect();
+  if (cx < rect.left || cx > rect.right || cy < rect.top || cy > rect.bottom) return null;
+  return { x: (cx - rect.left) / rect.width * W, y: (cy - rect.top) / rect.height * H };
+}
+
+function beginMoveStick(identifier, clientX, clientY) {
+  G.joystick.active = true;
+  G.joystick.touchId = identifier;
+  G.joystick.cx = clientX;
+  G.joystick.cy = clientY;
+  G.joystick.tx = clientX;
+  G.joystick.ty = clientY;
+  G.joystick.dx = 0;
+  G.joystick.dy = 0;
+}
+
+function updateStick(stick, clientX, clientY, maxDist = 46, deadZone = 10) {
+  stick.tx = clientX;
+  stick.ty = clientY;
+  const rawDx = clientX - stick.cx;
+  const rawDy = clientY - stick.cy;
+  const d = Math.sqrt(rawDx * rawDx + rawDy * rawDy);
+  if (d < deadZone) {
+    stick.dx = 0;
+    stick.dy = 0;
+    return;
+  }
+  const clamped = Math.min(d, maxDist);
+  stick.dx = (rawDx / d) * clamped;
+  stick.dy = (rawDy / d) * clamped;
+}
+
+function clearMoveStick() {
+  G.joystick.active = false;
+  G.joystick.touchId = null;
+  G.joystick.dx = 0;
+  G.joystick.dy = 0;
+}
+
+function beginDashStick(identifier, clientX, clientY) {
+  if (!startDashCharge()) return false;
+  G.dashStick.active = true;
+  G.dashStick.touchId = identifier;
+  G.dashStick.cx = clientX;
+  G.dashStick.cy = clientY;
+  G.dashStick.tx = clientX;
+  G.dashStick.ty = clientY;
+  G.dashStick.dx = 0;
+  G.dashStick.dy = 0;
+  G.player.dashChargeTouchId = identifier;
+  return true;
+}
+
+function clearDashStick() {
+  G.dashStick.active = false;
+  G.dashStick.touchId = null;
+  G.dashStick.dx = 0;
+  G.dashStick.dy = 0;
 }
 
 function claimInputFocus() {
@@ -546,35 +610,26 @@ function getDashCooldown() {
 }
 
 export function isTouchActive() {
-  return G.joystick.active || (G.player && G.player.dashChargeTouchId !== null);
+  return G.joystick.active || G.dashStick.active || (G.player && G.player.dashChargeTouchId !== null);
 }
 
 function getDashDirection() {
   const player = G.player;
 
-  // --- Mobile: active dash touch aims directly ---
-  if (player.dashCharging && player.dashChargeTouchId !== null) {
-    const dx = G.mouseX - player.x;
-    const dy = G.mouseY - player.y;
-    const d = Math.sqrt(dx * dx + dy * dy);
-    if (d < AIM_CANCEL_RADIUS) {
-      return { bdx: 0, bdy: 0, cancel: true };
+  // --- Mobile: dedicated dash stick ---
+  if (isTouchUILayout() && player.dashCharging && player.dashChargeTouchId !== null) {
+    if (G.dashStick.active && (G.dashStick.dx !== 0 || G.dashStick.dy !== 0)) {
+      const dLen = Math.sqrt(G.dashStick.dx * G.dashStick.dx + G.dashStick.dy * G.dashStick.dy);
+      return { bdx: G.dashStick.dx / dLen, bdy: G.dashStick.dy / dLen, cancel: false };
     }
-    return { bdx: dx / d, bdy: dy / d, cancel: false };
-  }
-
-  // --- Mobile: joystick direction fallback ---
-  if (isTouchActive()) {
     if (G.joystick.active && (G.joystick.dx !== 0 || G.joystick.dy !== 0)) {
       const jLen = Math.sqrt(G.joystick.dx * G.joystick.dx + G.joystick.dy * G.joystick.dy);
       return { bdx: G.joystick.dx / jLen, bdy: G.joystick.dy / jLen, cancel: false };
     }
-    // Joystick neutral — check velocity fallback
     const spd = mag(player.vx, player.vy);
     if (spd > 30) {
       return { bdx: player.vx / spd, bdy: player.vy / spd, cancel: false };
     }
-    // Neutral joystick + low velocity = cancel
     return { bdx: 0, bdy: 0, cancel: true };
   }
 
@@ -611,6 +666,7 @@ function performDash(bdx, bdy, t) {
   player.dashChargeTime = 0;
   player.dashChargeStaminaDrained = 0;
   player.dashChargeTouchId = null;
+  clearDashStick();
 
   sfxDash();
 
@@ -762,6 +818,7 @@ function releaseDashCharge() {
     player.dashChargeTime = 0;
     player.dashChargeStaminaDrained = 0;
     player.dashChargeTouchId = null;
+    clearDashStick();
     // Red ring flash for aim cancel
     G.dashAimCancelFlashTimer = 0.15;
     return;
@@ -782,6 +839,7 @@ export function cancelDashCharge(refundDrain) {
   player.dashChargeTime = 0;
   player.dashChargeStaminaDrained = 0;
   player.dashChargeTouchId = null;
+  clearDashStick();
 }
 
 // Called each frame from the game loop while playing
@@ -882,6 +940,13 @@ export function getDashProjection() {
 }
 
 export function setupInput() {
+  bindTouchPauseButton(() => {
+    if (G.state === STATE.PLAYING || G.state === STATE.WAVE_BREAK || G.state === STATE.BOSS_FIGHT) {
+      sfxUIClick();
+      openPauseMenu();
+    }
+  });
+
   C.addEventListener('mousedown', e => {
     claimInputFocus();
     e.preventDefault();
@@ -974,33 +1039,34 @@ export function setupInput() {
     handleCardHover(p.x, p.y);
   });
 
-  C.addEventListener('touchstart', e => {
+  window.addEventListener('touchstart', e => {
+    if (!isTouchUILayout()) return;
+    if (e.target?.closest?.('#bb-touch-pause')) return;
     claimInputFocus();
     e.preventDefault();
     for (let i = 0; i < e.changedTouches.length; i++) {
       const t = e.changedTouches[i];
-      const p = canvasCoords(t.clientX, t.clientY);
-      if (G.state === STATE.GLOSSARY) { glossaryClickTest(p.x, p.y); return; }
-      if (G.state === STATE.POWER_SELECT) { handleCardClick(p.x, p.y); return; }
+      const p = canvasCoordsOrNull(t.clientX, t.clientY);
+      const isLeftHalf = t.clientX < window.innerWidth / 2;
+
+      if (G.state === STATE.GLOSSARY) {
+        if (p) glossaryClickTest(p.x, p.y);
+        return;
+      }
+      if (G.state === STATE.POWER_SELECT) {
+        if (p) handleCardClick(p.x, p.y);
+        return;
+      }
       if (G.state === STATE.MODE_SELECT) {
+        if (!p) return;
         const card = modeSelectCardAt(p.x, p.y);
         if (card >= 0) { sfxUIClick(); confirmModeSelect(card); }
         return;
       }
-      if ((G.state === STATE.PLAYING || G.state === STATE.WAVE_BREAK || G.state === STATE.BOSS_FIGHT) &&
-          hitTest(p.x, p.y, G._mobilePauseBtnRect)) {
-        sfxUIClick();
-        openPauseMenu();
-        return;
-      }
       if (G.state === STATE.STORY_INTRO) {
-        if ((G.storyIntro?.beat === 1 || G.storyIntro?.beat === 3) && p.x < W / 2 && !G.joystick.active) {
-          G.joystick.active = true;
-          G.joystick.touchId = t.identifier;
-          G.joystick.cx = p.x; G.joystick.cy = p.y;
-          G.joystick.tx = p.x; G.joystick.ty = p.y;
-          G.joystick.dx = 0; G.joystick.dy = 0;
-        } else if (G.storyIntro?.beat === 3 && p.x >= W / 2) {
+        if ((G.storyIntro?.beat === 1 || G.storyIntro?.beat === 3) && isLeftHalf && !G.joystick.active) {
+          beginMoveStick(t.identifier, t.clientX, t.clientY);
+        } else if (G.storyIntro?.beat === 3 && !isLeftHalf) {
           import('../game.js').then(m => m.startStoryIntroDashCharge(t.identifier));
         } else {
           import('../game.js').then(m => m.advanceStoryIntro());
@@ -1014,42 +1080,30 @@ export function setupInput() {
           }
           return;
         }
-        const optionIndex = getTransitionRoomOptionAt(p.x, p.y);
-        if (optionIndex >= 0 || hitTest(p.x, p.y, G._transitionContinueRect)) {
-          handleInput(p.x, p.y);
-          return;
+        if (p) {
+          const optionIndex = getTransitionRoomOptionAt(p.x, p.y);
+          if (optionIndex >= 0 || hitTest(p.x, p.y, G._transitionContinueRect)) {
+            handleInput(p.x, p.y);
+            return;
+          }
         }
-        if (!G.joystick.active) {
-          G.joystick.active = true;
-          G.joystick.touchId = t.identifier;
-          G.joystick.cx = p.x; G.joystick.cy = p.y;
-          G.joystick.tx = p.x; G.joystick.ty = p.y;
-          G.joystick.dx = 0; G.joystick.dy = 0;
-        }
+        if (!G.joystick.active) beginMoveStick(t.identifier, t.clientX, t.clientY);
         return;
       }
       if (G.state === STATE.TITLE || G.state === STATE.GAME_OVER ||
           G.state === STATE.TUTORIAL || G.state === STATE.RUN_SUMMARY ||
           G.state === STATE.RELAY_CHAMBER ||
-          G.state === STATE.PAUSED) {
-        handleInput(p.x, p.y);
+          G.state === STATE.PAUSED || G.state === STATE.SETTINGS || G.state === STATE.LOADOUT) {
+        if (p) handleInput(p.x, p.y);
         return;
       }
+
       if (G.state !== STATE.PLAYING && G.state !== STATE.WAVE_BREAK && G.state !== STATE.BOSS_FIGHT) return;
-      if (p.x < W / 2 && !G.joystick.active) {
-        G.joystick.active = true;
-        G.joystick.touchId = t.identifier;
-        G.joystick.cx = p.x; G.joystick.cy = p.y;
-        G.joystick.tx = p.x; G.joystick.ty = p.y;
-        G.joystick.dx = 0; G.joystick.dy = 0;
-      }
-      else if (p.x >= W / 2) {
-        if ((G.state === STATE.PLAYING || G.state === STATE.BOSS_FIGHT) && startDashCharge()) {
-          G.player.dashChargeTouchId = t.identifier;
-          G.mouseX = p.x;
-          G.mouseY = p.y;
-          G.tapBounceRipples.push({ x: p.x, y: p.y, r: 0, maxR: 30, life: 0.3, maxLife: 0.3 });
-        }
+
+      if (isLeftHalf && !G.joystick.active) {
+        beginMoveStick(t.identifier, t.clientX, t.clientY);
+      } else if (!isLeftHalf && !G.dashStick.active && (G.state === STATE.PLAYING || G.state === STATE.BOSS_FIGHT)) {
+        beginDashStick(t.identifier, t.clientX, t.clientY);
       }
     }
   }, { passive: false });
@@ -1058,37 +1112,25 @@ export function setupInput() {
     claimInputFocus();
   }, { passive: true });
 
-  C.addEventListener('touchmove', e => {
+  window.addEventListener('touchmove', e => {
+    if (!isTouchUILayout()) return;
     e.preventDefault();
     for (let i = 0; i < e.changedTouches.length; i++) {
       const t = e.changedTouches[i];
       if (G.joystick.active && t.identifier === G.joystick.touchId) {
-        const p = canvasCoords(t.clientX, t.clientY);
-        G.joystick.tx = p.x; G.joystick.ty = p.y;
-        let jdx = p.x - G.joystick.cx, jdy = p.y - G.joystick.cy;
-        const jDist = Math.sqrt(jdx * jdx + jdy * jdy);
-        const deadZone = 20;
-        if (jDist < deadZone) { G.joystick.dx = 0; G.joystick.dy = 0; }
-        else {
-          const maxDist = 40;
-          const clamped = Math.min(jDist, maxDist);
-          G.joystick.dx = (jdx / jDist) * clamped;
-          G.joystick.dy = (jdy / jDist) * clamped;
-        }
-      } else if (G.player && G.player.dashCharging && t.identifier === G.player.dashChargeTouchId) {
-        const p = canvasCoords(t.clientX, t.clientY);
-        G.mouseX = p.x;
-        G.mouseY = p.y;
+        updateStick(G.joystick, t.clientX, t.clientY, 50, 12);
+      } else if (G.dashStick.active && t.identifier === G.dashStick.touchId) {
+        updateStick(G.dashStick, t.clientX, t.clientY, 54, 8);
       }
     }
   }, { passive: false });
 
-  C.addEventListener('touchend', e => {
+  window.addEventListener('touchend', e => {
+    if (!isTouchUILayout()) return;
     for (let i = 0; i < e.changedTouches.length; i++) {
       const t = e.changedTouches[i];
       if (G.joystick.active && t.identifier === G.joystick.touchId) {
-        G.joystick.active = false; G.joystick.touchId = null;
-        G.joystick.dx = 0; G.joystick.dy = 0;
+        clearMoveStick();
       }
       if (G.state === STATE.STORY_INTRO && G.storyIntro?.player?.dashCharging &&
           t.identifier === G.storyIntro.player.dashChargeTouchId) {
@@ -1101,12 +1143,12 @@ export function setupInput() {
     }
   });
 
-  C.addEventListener('touchcancel', e => {
+  window.addEventListener('touchcancel', e => {
+    if (!isTouchUILayout()) return;
     for (let i = 0; i < e.changedTouches.length; i++) {
       const t = e.changedTouches[i];
       if (G.joystick.active && t.identifier === G.joystick.touchId) {
-        G.joystick.active = false; G.joystick.touchId = null;
-        G.joystick.dx = 0; G.joystick.dy = 0;
+        clearMoveStick();
       }
       if (G.state === STATE.STORY_INTRO && G.storyIntro?.player?.dashCharging &&
           t.identifier === G.storyIntro.player.dashChargeTouchId) {

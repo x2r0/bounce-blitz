@@ -28,9 +28,10 @@ import {
   updateParticles, updateFloatTexts, updateShockwaves, updateThunderTrails, updateAfterimages,
   updateWallFlashes, updateCollectRings, updateMultiPopExplosions, updateTapBounceRipples,
   drawWallFlashes, drawParticles, drawCollectRings, drawMultiPopExplosions, drawThunderTrails,
-  drawShockwaves, drawAfterimages, drawJoystick, drawTapBounceRipples
+  drawShockwaves, drawAfterimages, drawTapBounceRipples
 } from './systems/particles.js';
 import { setupInput, updateDashCharge } from './systems/input.js';
+import { isTouchUILayout, syncTouchOverlay } from './systems/touch-ui.js';
 import { updateDashPreview, drawDashPreview } from './systems/dash-preview.js';
 import { updateTitleBackground, drawTitleBackground } from './systems/title-bg.js';
 import { drawHUD } from './systems/hud.js';
@@ -1073,13 +1074,13 @@ function drawStoryIntroScreen() {
   if (!intro) return;
   ensureStoryIntroState(intro);
   const localT = intro.timer - intro.beatStartedAt;
-  const isTouchDev = 'ontouchstart' in window;
+  const isTouchDev = isTouchUILayout();
 
   drawStoryIntroWorld(intro);
 
   let title = 'A distress signal remains inside the grid.';
   let body = 'You are the last courier in range.';
-  let prompt = intro.canAdvance ? 'Press any key or click to answer the signal' : '';
+  let prompt = intro.canAdvance ? (isTouchDev ? 'Tap to answer the signal' : 'Press any key or click to answer the signal') : '';
   let objective = '';
   let accent = '#78eaff';
 
@@ -1090,12 +1091,12 @@ function drawStoryIntroScreen() {
   } else if (intro.beat === 2) {
     title = 'Its constructs are waking corrupted.';
     body = 'If the core dies here, the grid goes dark with it.';
-    if (intro.canAdvance) prompt = 'Press any key or click to continue';
+    if (intro.canAdvance) prompt = isTouchDev ? 'Tap to continue' : 'Press any key or click to continue';
     accent = '#ff86ba';
   } else if (intro.beat === 3) {
     title = '';
     body = isTouchDev
-      ? 'Hold the right side, then release\nto dash through the construct.'
+      ? 'Press the right stick, aim,\nthen release to dash through the construct.'
       : 'Hold Space, then release\nto dash through the construct.';
     prompt = '';
     objective = '';
@@ -1103,7 +1104,7 @@ function drawStoryIntroScreen() {
   } else if (intro.beat === 4) {
     title = 'Hold the line. Keep the core alive.';
     body = 'The run starts now.';
-    if (intro.canAdvance) prompt = 'Press any key or click to begin';
+    if (intro.canAdvance) prompt = isTouchDev ? 'Tap to begin' : 'Press any key or click to begin';
     accent = '#ff86ba';
   }
 
@@ -1130,7 +1131,7 @@ function drawStoryIntroScreen() {
   ctx.fillText('Loadout: ' + ((LOADOUTS.find(l => l.id === G.meta.selectedLoadout) || LOADOUTS[0]).name), 58, H - 44);
   if (intro.skipReady) {
     ctx.textAlign = 'right';
-    ctx.fillText('Esc to skip', W - 40, 34);
+    ctx.fillText(isTouchDev ? 'Tap to skip' : 'Esc to skip', W - 40, 34);
   }
   ctx.restore();
 
@@ -2430,6 +2431,7 @@ function update(dt) {
 
 // --- Title Screen ---
 function drawTitleScreen() {
+  const isTouchDev = isTouchUILayout();
   ctx.save();
   ctx.fillStyle = '#0a0a0f';
   ctx.fillRect(0, 0, W, H);
@@ -2481,10 +2483,10 @@ function drawTitleScreen() {
     ctx.restore();
   }
 
-  const panelW = 420;
+  const panelW = isTouchDev ? 452 : 420;
   const panelX = W / 2 - panelW / 2;
   const panelY = H * 0.595;
-  const panelH = hasSavedRun() ? 246 : 192;
+  const panelH = hasSavedRun() ? (isTouchDev ? 228 : 246) : (isTouchDev ? 184 : 192);
 
   ctx.save();
   ctx.fillStyle = 'rgba(8, 12, 22, 0.66)';
@@ -2496,31 +2498,31 @@ function drawTitleScreen() {
   ctx.stroke();
   ctx.restore();
 
-  const playRect = { x: W / 2 - 154, y: panelY - 6, w: 308, h: 50 };
+  const playRect = { x: W / 2 - 162, y: panelY - 8, w: 324, h: isTouchDev ? 56 : 50 };
   G._titlePlayBtnRect = playRect;
   drawMenuButton(playRect, 'Play', {
     hovered: G._titleHoverAction === 'play',
     accent: '#00eaff',
-    sublabel: 'Click or press any key',
+    sublabel: isTouchDev ? 'Tap to start' : 'Click or press any key',
     prominent: true,
   });
 
   let lowerButtonsY = playRect.y + playRect.h + 12;
   if (hasSavedRun()) {
-    const continueRect = { x: W / 2 - 154, y: lowerButtonsY, w: 308, h: 42 };
+    const continueRect = { x: W / 2 - 162, y: lowerButtonsY, w: 324, h: isTouchDev ? 46 : 42 };
     G._titleContinueBtnRect = continueRect;
     drawMenuButton(continueRect, 'Continue Run', {
       hovered: G._titleHoverAction === 'continue',
       accent: '#00ffcc',
-      sublabel: 'Hotkey C',
+      sublabel: isTouchDev ? 'Tap to continue' : 'Hotkey C',
     });
-    lowerButtonsY += 54;
+    lowerButtonsY += isTouchDev ? 58 : 54;
   } else {
     G._titleContinueBtnRect = null;
   }
 
-  const smallW = 148;
-  const smallH = 40;
+  const smallW = isTouchDev ? 156 : 148;
+  const smallH = isTouchDev ? 44 : 40;
   const smallGap = 12;
   const smallX = W / 2 - (smallW * 2 + smallGap) / 2;
   const secondary = [
@@ -2535,7 +2537,7 @@ function drawTitleScreen() {
     drawMenuButton(rect, btn.label, {
       hovered: G._titleHoverAction === btn.id,
       accent: btn.accent,
-      sublabel: 'Hotkey ' + btn.key,
+      sublabel: isTouchDev ? '' : 'Hotkey ' + btn.key,
     });
   }
 
@@ -2553,6 +2555,7 @@ function drawTitleScreen() {
 
 // --- Settings Screen ---
 function drawSettingsScreen() {
+  const isTouchDev = isTouchUILayout();
   ctx.save();
   ctx.fillStyle = '#0a0a0f';
   ctx.fillRect(0, 0, W, H);
@@ -2709,7 +2712,7 @@ function drawSettingsScreen() {
   ctx.font = 'bold 16px ' + FONT;
   ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
   ctx.fillStyle = backHover ? '#aaaaff' : '#6666aa';
-  ctx.fillText('Back (Esc)', backBtnX + backBtnW / 2, backY + backBtnH / 2);
+  ctx.fillText(isTouchDev ? 'Back' : 'Back (Esc)', backBtnX + backBtnW / 2, backY + backBtnH / 2);
   ctx.restore();
   G._settingsBackBtnRect = { x: backBtnX, y: backY, w: backBtnW, h: backBtnH };
 
@@ -2728,7 +2731,13 @@ function drawSettingsScreen() {
   ctx.font = '13px ' + FONT;
   ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
   ctx.fillStyle = '#444466';
-  ctx.fillText('W/S or Up/Down to select · A/D or Left/Right to adjust', W / 2, H - 50);
+  ctx.fillText(
+    isTouchDev
+      ? 'Tap sliders to adjust · Tap back to return'
+      : 'W/S or Up/Down to select · A/D or Left/Right to adjust',
+    W / 2,
+    H - 50
+  );
   ctx.restore();
 
   ctx.restore();
@@ -3057,7 +3066,13 @@ function drawRunSummary() {
     ctx.globalAlpha = contPulse;
     ctx.font = '14px ' + FONT;
     ctx.fillStyle = '#7f8a9f';
-    ctx.fillText(canShowRelayChamber() ? 'Press any key to return to the relay' : 'Press any key to continue', W / 2, H - 22);
+    ctx.fillText(
+      isTouchUILayout()
+        ? (canShowRelayChamber() ? 'Tap to return to the relay' : 'Tap to continue')
+        : (canShowRelayChamber() ? 'Press any key to return to the relay' : 'Press any key to continue'),
+      W / 2,
+      H - 22
+    );
     ctx.restore();
   }
 
@@ -3467,9 +3482,10 @@ function drawTransitionRoom() {
     }
 
     if (room.preludeReady) {
+      const proceedText = isTouchUILayout() ? 'Tap to proceed' : 'Click or press any key to proceed';
       ctx.font = '12px ' + FONT;
       ctx.fillStyle = '#c7d4e9';
-      ctx.fillText('Click or press any key to proceed', W / 2, 520);
+      ctx.fillText(proceedText, W / 2, 520);
     }
 
     ctx.restore();
@@ -4237,7 +4253,7 @@ function drawLoadoutScreen() {
     ctx.textAlign = 'center';
     ctx.fillStyle = previewLoadout.id === 'hardcore' && canPurchaseHardcore(G.meta) ? '#ffdd66' : '#9aa5b4';
     ctx.fillText(previewLoadout.id === 'hardcore'
-      ? (canPurchaseHardcore(G.meta) ? 'Click or press Enter to unlock' : 'Locked progression challenge')
+      ? (canPurchaseHardcore(G.meta) ? (isTouchUILayout() ? 'Tap to unlock' : 'Click or press Enter to unlock') : 'Locked progression challenge')
       : 'Unlock through meta progression', previewX + previewW / 2, previewY + previewH - 14);
   }
 
@@ -4246,7 +4262,13 @@ function drawLoadoutScreen() {
   ctx.font = '14px ' + FONT;
   ctx.textAlign = 'center';
   ctx.fillStyle = '#6c7992';
-  ctx.fillText('Click a loadout or use WASD/Arrow keys · Enter selects · Esc returns', W / 2, H - 24);
+  ctx.fillText(
+    isTouchUILayout()
+      ? 'Tap a loadout to preview or equip'
+      : 'Click a loadout or use WASD/Arrow keys · Enter selects · Esc returns',
+    W / 2,
+    H - 24
+  );
 
   ctx.restore();
 }
@@ -4296,6 +4318,7 @@ function drawProximityRing() {
 
 // --- Main Draw ---
 function draw() {
+  syncTouchOverlay();
   if (G.state === STATE.TITLE) { drawTitleScreen(); return; }
   if (G.state === STATE.STORY_INTRO) { drawStoryIntroScreen(); return; }
   if (G.state === STATE.MODE_SELECT) { drawModeSelectScreen(); return; }
@@ -4514,10 +4537,7 @@ function draw() {
   // Reverse wave transition offset before UI overlays
   if (transOffset > 0) ctx.translate(0, -transOffset);
 
-  // 11b. Virtual joystick overlay (mobile)
-  drawJoystick();
-
-  // 11c. Tap bounce ripples (mobile)
+  // 11b. Tap bounce ripples (mobile)
   drawTapBounceRipples();
 
   // 12. Switch back to source-over for UI
@@ -4562,7 +4582,7 @@ function draw() {
   // 16c2. "NEW: Aim your dash" tooltip (first 3 dashes after update)
   if (G.dashTooltipTimer > 0 && (G.state === STATE.PLAYING || G.state === STATE.BOSS_FIGHT)) {
     const ttAlpha = Math.min(1, G.dashTooltipTimer / 0.3);
-    const isTouchDev = 'ontouchstart' in window;
+    const isTouchDev = isTouchUILayout();
     const ttText = isTouchDev
       ? 'NEW: Drag on the right side to aim your dash!'
       : 'NEW: Aim your dash with the mouse!';
@@ -4712,7 +4732,7 @@ function draw() {
       ctx.font = '16px ' + FONT;
       ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
       ctx.fillStyle = '#888888';
-      ctx.fillText('Click / Tap / Any Key for Summary', W / 2, H * 0.35 + 180);
+      ctx.fillText(isTouchUILayout() ? 'Tap for summary' : 'Click / Tap / Any Key for Summary', W / 2, H * 0.35 + 180);
       ctx.restore();
     }
 
@@ -4839,7 +4859,7 @@ function draw() {
 
     // --- Pause menu buttons ---
     const btnY = sigilRowY + 8;
-    const btnW = 184, btnH = 40, btnGap = 12;
+    const btnW = isTouchDev ? 192 : 184, btnH = isTouchDev ? 44 : 40, btnGap = 12;
     const rowX = W / 2 - (btnW * 2 + btnGap) / 2;
     const pauseButtons = [
       { id: 'resume', label: 'Resume', key: 'P', x: rowX, y: btnY, accent: '#00ffaa' },
@@ -4853,7 +4873,7 @@ function draw() {
       drawMenuButton(rect, btn.label, {
         hovered: G._pauseHoverAction === btn.id,
         accent: btn.accent,
-        sublabel: 'Hotkey ' + btn.key,
+        sublabel: isTouchDev ? '' : 'Hotkey ' + btn.key,
         danger: !!btn.danger,
       });
     }
@@ -4888,7 +4908,7 @@ function draw() {
 
   // 21. Tutorial overlay (outside shake)
   if (G.state === STATE.TUTORIAL) {
-    const isTouchDev = 'ontouchstart' in window;
+    const isTouchDev = isTouchUILayout();
     const panelX = 110;
     const panelY = 142;
     const panelW = 580;
@@ -4935,7 +4955,7 @@ function draw() {
         title: 'MOVE',
         accent: '#78f3ff',
         lines: [
-          isTouchDev ? 'Left side joystick' : 'WASD to drift',
+          isTouchDev ? 'Left thumb to move' : 'WASD to drift',
           'Keep your route alive',
         ],
       },
@@ -4943,7 +4963,7 @@ function draw() {
         title: 'BREAK THROUGH',
         accent: '#ffd966',
         lines: isTouchDev
-          ? ['Drag right thumb to aim', 'Release to dash-kill']
+          ? ['Press right stick to charge', 'Aim, then release to dash']
           : ['Hold Space', 'Release to dash-kill'],
       },
       {
@@ -5000,7 +5020,7 @@ function draw() {
     ctx.font = 'bold 14px ' + FONT;
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
     ctx.fillStyle = '#9fdfff';
-    ctx.fillText('Click or press any key to start', W / 2, panelY + panelH - 27);
+    ctx.fillText(isTouchUILayout() ? 'Tap to start' : 'Click or press any key to start', W / 2, panelY + panelH - 27);
     ctx.restore();
     ctx.restore();
   }
@@ -5013,6 +5033,7 @@ function draw() {
     ctx.fillRect(0, 0, W, H);
     ctx.restore();
   }
+
 }
 
 // --- Game Over → Run Summary transition ---

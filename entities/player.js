@@ -587,14 +587,10 @@ export function drawPlayer() {
       if (isTouchActive()) {
         let adx = 0;
         let ady = 0;
-        if (player.dashCharging && player.dashChargeTouchId !== null) {
-          const dx = G.mouseX - player.x;
-          const dy = G.mouseY - player.y;
-          const d = Math.sqrt(dx * dx + dy * dy);
-          if (d >= 0.001) {
-            adx = dx / d;
-            ady = dy / d;
-          }
+        if (player.dashCharging && G.dashStick.active && (G.dashStick.dx !== 0 || G.dashStick.dy !== 0)) {
+          const d = Math.sqrt(G.dashStick.dx * G.dashStick.dx + G.dashStick.dy * G.dashStick.dy);
+          adx = G.dashStick.dx / d;
+          ady = G.dashStick.dy / d;
         } else if (G.joystick.active && (G.joystick.dx !== 0 || G.joystick.dy !== 0)) {
           const jLen = Math.sqrt(G.joystick.dx * G.joystick.dx + G.joystick.dy * G.joystick.dy);
           adx = G.joystick.dx / jLen;

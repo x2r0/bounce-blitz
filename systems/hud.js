@@ -23,7 +23,6 @@ function drawHudPanel(x, y, w, h, glow) {
 
 export function drawHUD() {
   const player = G.player;
-  const isTouchDev = typeof window !== 'undefined' && ('ontouchstart' in window || navigator.maxTouchPoints > 0);
   const hasSigils = !!(player.sigils && player.sigils.length);
   const leftPanelH = G.isHardcore
     ? (hasSigils ? 134 : 112)
@@ -285,79 +284,6 @@ export function drawHUD() {
     ctx.restore();
   }
 
-  if (isTouchDev && (G.state === STATE.PLAYING || G.state === STATE.BOSS_FIGHT || G.state === STATE.WAVE_BREAK)) {
-    const rightPanelH = G.combo >= 2 ? 108 : 88;
-    const pauseRect = { x: W - 72, y: 14 + rightPanelH + 6, w: 56, h: 30 };
-    G._mobilePauseBtnRect = pauseRect;
-
-    ctx.save();
-    ctx.fillStyle = 'rgba(8, 12, 22, 0.78)';
-    ctx.beginPath();
-    ctx.roundRect(pauseRect.x, pauseRect.y, pauseRect.w, pauseRect.h, 10);
-    ctx.fill();
-    ctx.strokeStyle = 'rgba(120, 235, 255, 0.28)';
-    ctx.lineWidth = 1.5;
-    ctx.beginPath();
-    ctx.roundRect(pauseRect.x + 0.5, pauseRect.y + 0.5, pauseRect.w - 1, pauseRect.h - 1, 10);
-    ctx.stroke();
-    ctx.strokeStyle = '#dff7ff';
-    ctx.lineWidth = 4;
-    ctx.lineCap = 'round';
-    ctx.beginPath();
-    ctx.moveTo(pauseRect.x + 21, pauseRect.y + 9);
-    ctx.lineTo(pauseRect.x + 21, pauseRect.y + 21);
-    ctx.moveTo(pauseRect.x + 35, pauseRect.y + 9);
-    ctx.lineTo(pauseRect.x + 35, pauseRect.y + 21);
-    ctx.stroke();
-    ctx.restore();
-
-    const showTouchHints = !G.tutorialDismissed || G.wave <= 2 || G.elapsedTime < 28;
-    if (showTouchHints) {
-      const hintY = H - 66;
-      const hintH = 48;
-      const hintW = 176;
-      const leftRect = { x: 12, y: hintY, w: hintW, h: hintH };
-      const rightRect = { x: W - hintW - 12, y: hintY, w: hintW, h: hintH };
-      const leftActive = G.joystick.active;
-      const rightActive = player.dashCharging;
-
-      const drawTouchHint = (rect, title, line, active, accent) => {
-        ctx.save();
-        ctx.fillStyle = active ? 'rgba(12, 24, 40, 0.90)' : 'rgba(8, 14, 24, 0.72)';
-        ctx.beginPath();
-        ctx.roundRect(rect.x, rect.y, rect.w, rect.h, 12);
-        ctx.fill();
-        ctx.strokeStyle = active ? accent : 'rgba(120, 235, 255, 0.16)';
-        ctx.lineWidth = active ? 2 : 1;
-        ctx.beginPath();
-        ctx.roundRect(rect.x + 0.5, rect.y + 0.5, rect.w - 1, rect.h - 1, 12);
-        ctx.stroke();
-        ctx.font = 'bold 11px ' + FONT;
-        ctx.textAlign = 'left';
-        ctx.textBaseline = 'top';
-        ctx.fillStyle = accent;
-        ctx.fillText(title, rect.x + 12, rect.y + 10);
-        ctx.font = '12px ' + FONT;
-        ctx.fillStyle = '#d5e3f6';
-        ctx.fillText(line, rect.x + 12, rect.y + 25);
-        ctx.restore();
-      };
-
-      drawTouchHint(leftRect, 'MOVE', 'Left thumb joystick', leftActive, '#78f3ff');
-      drawTouchHint(rightRect, 'AIM + RELEASE', 'Right thumb dash', rightActive, '#ffd966');
-
-      if (G.elapsedTime < 18) {
-        ctx.save();
-        ctx.font = '11px ' + FONT;
-        ctx.textAlign = 'right';
-        ctx.textBaseline = 'middle';
-        ctx.fillStyle = '#a7bfdc';
-        ctx.fillText('Pause', pauseRect.x - 8, pauseRect.y + pauseRect.h / 2);
-        ctx.restore();
-      }
-    }
-  } else {
-    G._mobilePauseBtnRect = null;
-  }
+  G._mobilePauseBtnRect = null;
 
 }
