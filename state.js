@@ -329,6 +329,8 @@ export function resetGameState() {
     revivesUsed: 0,
     waveReached: 0,
     leaderboardSubmitted: false,
+    leaderboardSubmitPending: false,
+    leaderboardSubmitAttempts: 0,
     killSources: { player: 0, multipop: 0, chainLightning: 0, nuke: 0, broodbreakerSigil: 0, feedbackSigil: 0, other: 0 },
   };
 
@@ -458,9 +460,13 @@ export function restoreRunState() {
     revivesUsed: saved.usedSecondWind ? 1 : 0,
     waveReached: saved.wave || 0,
     leaderboardSubmitted: false,
+    leaderboardSubmitPending: false,
+    leaderboardSubmitAttempts: 0,
     killSources: { player: 0, multipop: 0, chainLightning: 0, nuke: 0, broodbreakerSigil: 0, feedbackSigil: 0, other: 0 },
   };
   G.runTelemetry.leaderboardSubmitted = !!G.runTelemetry.leaderboardSubmitted;
+  G.runTelemetry.leaderboardSubmitPending = !!G.runTelemetry.leaderboardSubmitPending;
+  G.runTelemetry.leaderboardSubmitAttempts = Math.max(0, G.runTelemetry.leaderboardSubmitAttempts || 0);
   G.runTelemetry.killSources = {
     player: 0,
     multipop: 0,

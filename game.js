@@ -5805,13 +5805,42 @@ export function transitionToRunSummary() {
     telemetry: G.runTelemetry,
   };
 
-  if (G.runTelemetry && !G.runTelemetry.leaderboardSubmitted) {
-    G.runTelemetry.leaderboardSubmitted = true;
-    void platformSDK.submitLeaderboardScore(G.score, {
-      mode: G.runSummary.mode,
-      victory: G.runSummary.isVictory,
-      wave: G.wave,
-    });
+  if (G.runTelemetry && !G.runTelemetry.leaderboardSubmitted && !G.runTelemetry.leaderboardSubmitPending) {
+    if (G.score <= 0) {
+      G.runTelemetry.leaderboardSubmitted = true;
+      console.log('[CrazyGames] leaderboard submit skipped for zero score');
+    } else if ((G.runTelemetry.leaderboardSubmitAttempts || 0) < 3) {
+      G.runTelemetry.leaderboardSubmitPending = true;
+      G.runTelemetry.leaderboardSubmitAttempts = (G.runTelemetry.leaderboardSubmitAttempts || 0) + 1;
+      const submitAttempt = G.runTelemetry.leaderboardSubmitAttempts;
+      console.log('[CrazyGames] attempting leaderboard submit', {
+        score: G.score,
+        attempt: submitAttempt,
+        mode: G.runSummary.mode,
+        victory: G.runSummary.isVictory,
+        wave: G.wave,
+      });
+      void platformSDK.submitLeaderboardScore(G.score, {
+        mode: G.runSummary.mode,
+        victory: G.runSummary.isVictory,
+        wave: G.wave,
+      }).then((submitted) => {
+        if (!G.runTelemetry) return;
+        G.runTelemetry.leaderboardSubmitPending = false;
+        if (submitted) {
+          G.runTelemetry.leaderboardSubmitted = true;
+          console.log('[CrazyGames] leaderboard submit confirmed', { score: G.score, attempt: submitAttempt });
+        } else {
+          console.warn('[CrazyGames] leaderboard submit not detected', { score: G.score, attempt: submitAttempt });
+        }
+      }).catch((err) => {
+        if (G.runTelemetry) G.runTelemetry.leaderboardSubmitPending = false;
+        console.warn('[CrazyGames] leaderboard submit errored', err);
+      });
+    } else {
+      G.runTelemetry.leaderboardSubmitted = true;
+      console.warn('[CrazyGames] leaderboard submit gave up after retries', { score: G.score });
+    }
   }
 
   // Apply shards to meta
