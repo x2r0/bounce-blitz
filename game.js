@@ -5304,7 +5304,11 @@ function draw() {
       const shownPowers = player.powers.slice(0, 6);
       const hiddenPowers = Math.max(0, player.powers.length - shownPowers.length);
       const powerRows = Math.max(1, Math.ceil(shownPowers.length / 2));
-      const powerPanelH = 58 + powerRows * 40 + (hiddenPowers > 0 ? 18 : 0);
+      const chipGapX = 10;
+      const chipGapY = 8;
+      const chipW = Math.floor((panelW - 36 - chipGapX) / 2);
+      const chipH = 42;
+      const powerPanelH = 58 + powerRows * chipH + Math.max(0, powerRows - 1) * chipGapY + (hiddenPowers > 0 ? 20 : 0);
 
       ctx.save();
       ctx.fillStyle = 'rgba(10, 14, 24, 0.84)';
@@ -5327,21 +5331,47 @@ function draw() {
         const color = def ? def.icon : (evoRecipe ? evoRecipe.icon : '#ffffff');
         const col = i % 2;
         const row = Math.floor(i / 2);
-        const chipX = panelX + 18 + col * 330;
-        const chipY = powerPanelY + 38 + row * 40;
-        ctx.fillStyle = 'rgba(255,255,255,0.05)';
+        const chipX = panelX + 18 + col * (chipW + chipGapX);
+        const chipY = powerPanelY + 38 + row * (chipH + chipGapY);
+        const levelText = 'Lv ' + power.level;
+        ctx.fillStyle = 'rgba(255,255,255,0.07)';
         ctx.beginPath();
-        ctx.roundRect(chipX, chipY, 312, 32, 10);
+        ctx.roundRect(chipX, chipY, chipW, chipH, 12);
         ctx.fill();
-        drawPowerIcon(color, def ? def.shape : (evoRecipe?.shape || 'circle'), chipX + 16, chipY + 16, 8);
+        drawPowerIcon(color, def ? def.shape : (evoRecipe?.shape || 'circle'), chipX + 18, chipY + chipH / 2, 9);
         ctx.font = 'bold 12px ' + FONT;
+        const levelW = Math.max(48, ctx.measureText(levelText).width + 18);
+        const levelH = 22;
+        const levelX = chipX + chipW - levelW - 10;
+        const levelY = chipY + (chipH - levelH) / 2;
+        ctx.fillStyle = 'rgba(120, 243, 255, 0.1)';
+        ctx.beginPath();
+        ctx.roundRect(levelX, levelY, levelW, levelH, 999);
+        ctx.fill();
+        ctx.strokeStyle = 'rgba(120, 243, 255, 0.22)';
+        ctx.lineWidth = 1;
+        ctx.stroke();
+        ctx.font = 'bold 15px ' + FONT;
         ctx.textAlign = 'left';
         ctx.textBaseline = 'middle';
         ctx.fillStyle = '#ffffff';
-        ctx.fillText(name, chipX + 32, chipY + 12);
-        ctx.font = '10px ' + FONT;
-        ctx.fillStyle = '#8fa2bc';
-        ctx.fillText('Level ' + power.level, chipX + 32, chipY + 22);
+        let nameText = name;
+        const nameX = chipX + 36;
+        const nameMaxW = Math.max(64, levelX - nameX - 10);
+        while (ctx.measureText(nameText).width > nameMaxW && nameText.length > 1) {
+          nameText = nameText.slice(0, -1);
+        }
+        if (nameText !== name) {
+          while (ctx.measureText(nameText + '…').width > nameMaxW && nameText.length > 1) {
+            nameText = nameText.slice(0, -1);
+          }
+          nameText = nameText.trimEnd() + '…';
+        }
+        ctx.fillText(nameText, nameX, chipY + chipH / 2);
+        ctx.font = 'bold 12px ' + FONT;
+        ctx.textAlign = 'center';
+        ctx.fillStyle = '#8fefff';
+        ctx.fillText(levelText, levelX + levelW / 2, chipY + chipH / 2 + 0.5);
       }
       if (hiddenPowers > 0) {
         ctx.font = '11px ' + FONT;

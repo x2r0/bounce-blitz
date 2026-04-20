@@ -107,6 +107,13 @@ function ensureTouchUI() {
     .bb-touch-hud.is-visible {
       opacity: 1;
     }
+    .bb-touch-hud.is-tight {
+      padding: 9px 10px;
+      background: rgba(8, 14, 24, 0.54);
+      border-color: rgba(120, 243, 255, 0.1);
+      backdrop-filter: blur(6px);
+      box-shadow: 0 14px 34px rgba(0,0,0,0.16);
+    }
     .bb-touch-hud--left {
       left: 12px;
     }
@@ -202,6 +209,9 @@ function ensureTouchUI() {
       color: #dfeaff;
       margin-bottom: 6px;
     }
+    .bb-touch-hud.is-tight .bb-touch-wave-text {
+      font-size: 12px;
+    }
     .bb-touch-wave-progress {
       width: 100%;
       height: 5px;
@@ -233,6 +243,9 @@ function ensureTouchUI() {
       line-height: 1;
       color: #eef6ff;
       white-space: nowrap;
+    }
+    .bb-touch-hud.is-tight .bb-touch-statline-value {
+      font-size: 16px;
     }
     .bb-touch-statline-value.is-score {
       text-shadow: 0 0 12px rgba(170,170,255,0.22);
@@ -355,23 +368,33 @@ function ensureTouchUI() {
     #bb-touch-right-hint h4 { color: #ffd966; }
     .bb-touch-corner-btn {
       position: absolute;
-      top: calc(12px + env(safe-area-inset-top, 0px));
-      width: auto;
-      min-width: 58px;
-      height: 58px;
-      border-radius: 18px;
-      border: 1px solid rgba(140, 210, 255, 0.28);
-      background: rgba(7, 12, 22, 0.88);
-      color: #eef6ff;
+      width: 46px;
+      height: 46px;
+      border-radius: 999px;
+      border: 1px solid rgba(140, 210, 255, 0.18);
+      background: rgba(7, 12, 22, 0.54);
+      color: rgba(238, 246, 255, 0.94);
       display: none;
       align-items: center;
       justify-content: center;
-      font: 700 18px/1 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      backdrop-filter: blur(6px);
+      font: 700 20px/1 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      letter-spacing: 0;
+      backdrop-filter: blur(7px);
       pointer-events: auto;
-      box-shadow: 0 10px 30px rgba(0,0,0,0.18);
-      padding: 0 16px;
-      z-index: 6;
+      box-shadow: 0 8px 20px rgba(0,0,0,0.12);
+      padding: 0;
+      z-index: 7;
+    }
+    .bb-touch-corner-btn::before {
+      content: attr(data-label);
+      position: absolute;
+      top: 50%;
+      transform: translateY(-50%);
+      font: 700 11px/1 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      white-space: nowrap;
+      pointer-events: none;
     }
     .bb-touch-orientation {
       position: absolute;
@@ -446,33 +469,41 @@ function ensureTouchUI() {
       font-size: 13px;
     }
     #bb-touch-back {
+      top: calc(12px + env(safe-area-inset-top, 0px));
       left: calc(12px + env(safe-area-inset-left, 0px));
       display: none;
-      justify-content: center;
-      gap: 8px;
+    }
+    #bb-touch-back::before {
+      left: calc(100% + 10px);
+      color: rgba(227, 241, 255, 0.86);
     }
     #bb-touch-pause {
-      left: calc(12px + env(safe-area-inset-left, 0px));
-      right: auto;
-      top: calc(82px + env(safe-area-inset-top, 0px));
+      left: 0;
+      top: 0;
+      width: 32px;
+      height: 32px;
       display: none;
-      min-width: 88px;
-      height: 52px;
-      border-radius: 16px;
-      font-size: 15px;
-      font-weight: 800;
-      color: #f5f1ff;
-      background: linear-gradient(180deg, rgba(112, 75, 255, 0.96), rgba(84, 48, 215, 0.94));
-      border-color: rgba(198, 184, 255, 0.52);
-      box-shadow: 0 14px 34px rgba(60, 28, 160, 0.34);
+      border: 0;
+      background: transparent;
+      box-shadow: none;
+      backdrop-filter: none;
+      color: rgba(120, 243, 255, 0.94);
+      font-size: 26px;
+      text-shadow: 0 0 12px rgba(120, 243, 255, 0.28);
+    }
+    #bb-touch-pause::before {
+      content: none;
     }
     #bb-touch-back.is-visible,
     #bb-touch-pause.is-visible {
       display: flex;
     }
     .bb-touch-back-arrow {
-      font-size: 20px;
+      font-size: 22px;
       line-height: 1;
+    }
+    #bb-touch-back-label {
+      display: none;
     }
   `;
   document.head.appendChild(style);
@@ -492,10 +523,10 @@ function ensureTouchUI() {
       <div class="bb-stick-base"></div>
       <div class="bb-stick-thumb"></div>
     </div>
-    <button id="bb-touch-back" class="bb-touch-corner-btn" aria-label="Back">
+    <button id="bb-touch-back" class="bb-touch-corner-btn" aria-label="Back" data-label="Back">
       <span class="bb-touch-back-arrow">‹</span><span id="bb-touch-back-label">Back</span>
     </button>
-    <button id="bb-touch-pause" class="bb-touch-corner-btn" aria-label="Pause game">Pause</button>
+    <button id="bb-touch-pause" class="bb-touch-corner-btn" aria-label="Pause game" data-label="Pause">Ⅱ</button>
     <div id="bb-touch-left-hint" class="bb-touch-hint">
       <h4>Move</h4>
       <p>Left thumb joystick</p>
@@ -558,10 +589,18 @@ function renderTouchHud(anchors) {
   if (!visible) return;
 
   const player = G.player;
-  const leftWidth = Math.max(142, (anchors.leftWidth || 170) - 24);
-  const rightWidth = Math.max(142, (anchors.rightWidth || 170) - 24);
+  const leftWidth = Math.min(240, Math.max(84, (anchors.leftWidth || 170) - 16));
+  const rightWidth = Math.min(240, Math.max(84, (anchors.rightWidth || 170) - 16));
+  const leftOffset = Math.max(8, Math.floor(((anchors.leftWidth || leftWidth) - leftWidth) / 2));
+  const rightOffset = Math.max(8, Math.floor(((anchors.rightWidth || rightWidth) - rightWidth) / 2));
   leftHud.style.width = `${leftWidth}px`;
   rightHud.style.width = `${rightWidth}px`;
+  leftHud.style.left = `${leftOffset}px`;
+  leftHud.style.right = 'auto';
+  rightHud.style.left = `${Math.floor((anchors.rightGutterX || 0) + rightOffset)}px`;
+  rightHud.style.right = 'auto';
+  leftHud.classList.toggle('is-tight', leftWidth < 168);
+  rightHud.classList.toggle('is-tight', rightWidth < 168);
 
   const maxStam = player.maxStamina || 100;
   const staminaFill = Math.max(0, Math.min(1, player.stamina / maxStam));
@@ -784,6 +823,25 @@ export function syncTouchOverlay() {
     backBtn.classList.toggle('is-visible', showBack);
     const labelEl = backBtn.querySelector('#bb-touch-back-label');
     if (labelEl) labelEl.textContent = backLabel;
+    backBtn.setAttribute('data-label', backLabel);
+  }
+
+  pauseBtn?.setAttribute('data-label', 'Pause');
+
+  const rect = C?.getBoundingClientRect?.();
+  if (pauseBtn && rect) {
+    const topInset = Math.round(rect.top + 12);
+    const leftInset = Math.round(rect.right - 42);
+    pauseBtn.style.top = `${topInset}px`;
+    pauseBtn.style.left = `${leftInset}px`;
+    pauseBtn.style.right = 'auto';
+  }
+
+  if (leftHud) {
+    leftHud.style.top = 'calc(22px + env(safe-area-inset-top, 0px))';
+  }
+  if (rightHud) {
+    rightHud.style.top = 'calc(22px + env(safe-area-inset-top, 0px))';
   }
 
   if (mode === 'intro_move') {
