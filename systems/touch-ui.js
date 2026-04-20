@@ -455,10 +455,14 @@ function ensureTouchUI() {
       gap: 8px;
     }
     #bb-touch-pause {
-      right: calc(12px + env(safe-area-inset-right, 0px));
+      left: calc(12px + env(safe-area-inset-left, 0px));
+      right: auto;
+      top: calc(82px + env(safe-area-inset-top, 0px));
       display: none;
-      min-width: 92px;
-      font-size: 16px;
+      min-width: 88px;
+      height: 52px;
+      border-radius: 16px;
+      font-size: 15px;
       font-weight: 800;
       color: #f5f1ff;
       background: linear-gradient(180deg, rgba(112, 75, 255, 0.96), rgba(84, 48, 215, 0.94));
@@ -652,7 +656,9 @@ function getTouchUiMode() {
   if (G.state === STATE.STORY_INTRO && introBeat === 1) return 'intro_move';
   if (G.state === STATE.STORY_INTRO && introBeat === 3) return 'intro_dash';
   if (G.state === STATE.TUTORIAL) return 'tutorial';
-  if (G.state === STATE.PLAYING || G.state === STATE.WAVE_BREAK || G.state === STATE.BOSS_FIGHT) return 'gameplay';
+  if (G.state === STATE.WAVE_BREAK) return 'transition';
+  if (G.state === STATE.PAUSED) return 'paused';
+  if (G.state === STATE.PLAYING || G.state === STATE.BOSS_FIGHT) return 'gameplay';
   return 'menu';
 }
 
@@ -736,8 +742,6 @@ export function syncTouchOverlay() {
   renderTouchHud(anchors);
   const idleLeft = anchors ? { cx: anchors.leftX, cy: anchors.baseY, dx: 0, dy: 0 } : null;
   const idleRight = anchors ? { cx: anchors.rightX, cy: anchors.baseY, dx: 0, dy: 0 } : null;
-  const leftHintVisibility = G.joystick.active ? 'active' : 'idle';
-  const rightHintVisibility = G.dashStick.active ? 'active' : 'idle';
 
   if (mode === 'intro_move') {
     setStickVisual(leftBase, leftThumb, G.joystick.active ? G.joystick : idleLeft, G.joystick.active ? 'active' : 'idle');
@@ -756,7 +760,8 @@ export function syncTouchOverlay() {
   }
 
   if (pauseBtn) {
-    pauseBtn.classList.toggle('is-visible', inGameplay);
+    const showPause = G.state === STATE.PLAYING || G.state === STATE.BOSS_FIGHT;
+    pauseBtn.classList.toggle('is-visible', showPause);
   }
 
   let showBack = false;
@@ -780,7 +785,6 @@ export function syncTouchOverlay() {
     if (labelEl) labelEl.textContent = backLabel;
   }
 
-  const gameplayHints = inGameplay;
   if (mode === 'intro_move') {
     setHintCard(leftHint, 'Move', 'Slide the left stick to steer.', 'active');
     setHintCard(rightHint, 'Dash', 'The dash stick appears next.', 'hidden');
@@ -790,9 +794,15 @@ export function syncTouchOverlay() {
   } else if (mode === 'tutorial') {
     setHintCard(leftHint, 'Move', 'Left stick steers the courier.', 'active');
     setHintCard(rightHint, 'Dash', 'Press, aim, and release to burst.', 'active');
+  } else if (mode === 'transition') {
+    setHintCard(leftHint, 'Move', 'Left stick steers the courier.', 'active');
+    setHintCard(rightHint, 'Dash', 'Right stick charges and aims your dash.', 'active');
+  } else if (mode === 'paused') {
+    setHintCard(leftHint, 'Move', 'Left stick steers the courier.', 'active');
+    setHintCard(rightHint, 'Dash', 'Right stick charges, aims, and releases.', 'active');
   } else {
-    setHintCard(leftHint, 'Move', 'Left thumb joystick', gameplayHints ? leftHintVisibility : 'hidden');
-    setHintCard(rightHint, 'Dash', 'Press, aim, release', gameplayHints ? rightHintVisibility : 'hidden');
+    setHintCard(leftHint, 'Move', 'Left thumb joystick', 'hidden');
+    setHintCard(rightHint, 'Dash', 'Press, aim, release', 'hidden');
   }
 
   if (anchors) {

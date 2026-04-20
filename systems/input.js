@@ -183,6 +183,42 @@ function clearDashStick() {
   G.dashStick.dy = 0;
 }
 
+function handleLostDashTouch() {
+  if (G.player?.dashCharging || G.player?.dashChargeTouchId !== null) {
+    cancelDashCharge(true);
+    return;
+  }
+  clearDashStick();
+  if (G.player) G.player.dashChargeTouchId = null;
+}
+
+function reconcileTouchPointers(touches) {
+  const activeIds = new Set();
+  for (let i = 0; i < touches.length; i++) {
+    activeIds.add(touches[i].identifier);
+  }
+  if (G.joystick.active && !activeIds.has(G.joystick.touchId)) {
+    clearMoveStick();
+  }
+  const dashTouchId = G.dashStick.touchId;
+  const chargeTouchId = G.player?.dashChargeTouchId ?? null;
+  if ((G.dashStick.active && !activeIds.has(dashTouchId)) ||
+      (chargeTouchId !== null && !activeIds.has(chargeTouchId))) {
+    handleLostDashTouch();
+  }
+}
+
+function resetTouchInputState() {
+  if (touchScrollGesture) touchScrollGesture = null;
+  if (G.player?.dashCharging) {
+    cancelDashCharge(true);
+  } else {
+    clearDashStick();
+    if (G.player) G.player.dashChargeTouchId = null;
+  }
+  clearMoveStick();
+}
+
 export function clearTouchSticks() {
   clearMoveStick();
   clearDashStick();
@@ -1235,8 +1271,7 @@ export function setupInput() {
   window.addEventListener('touchstart', e => {
     if (!isTouchUILayout()) return;
     if (isTouchPortraitBlocked()) {
-      clearTouchSticks();
-      if (G.player?.dashCharging) cancelDashCharge(true);
+      resetTouchInputState();
       e.preventDefault();
       return;
     }
@@ -1313,6 +1348,7 @@ export function setupInput() {
         beginDashStick(t.identifier, t.clientX, t.clientY);
       }
     }
+    reconcileTouchPointers(e.touches);
   }, { passive: false });
 
   C.addEventListener('pointerdown', () => {
@@ -1322,8 +1358,7 @@ export function setupInput() {
   window.addEventListener('touchmove', e => {
     if (!isTouchUILayout()) return;
     if (isTouchPortraitBlocked()) {
-      clearTouchSticks();
-      if (G.player?.dashCharging) cancelDashCharge(true);
+      resetTouchInputState();
       e.preventDefault();
       return;
     }
@@ -1340,13 +1375,13 @@ export function setupInput() {
         updateStick(G.dashStick, t.clientX, t.clientY, 54, 8);
       }
     }
+    reconcileTouchPointers(e.touches);
   }, { passive: false });
 
   window.addEventListener('touchend', e => {
     if (!isTouchUILayout()) return;
     if (isTouchPortraitBlocked()) {
-      clearTouchSticks();
-      if (G.player?.dashCharging) cancelDashCharge(true);
+      resetTouchInputState();
       e.preventDefault();
       return;
     }
@@ -1364,18 +1399,24 @@ export function setupInput() {
         clearDashStick();
         import('../game.js').then(m => m.releaseStoryIntroDashCharge());
       }
-      // Release dash charge on finger lift
-      if (G.player && G.player.dashCharging && t.identifier === G.player.dashChargeTouchId) {
-        releaseDashCharge('touch', t.identifier);
+      if (G.dashStick.active && t.identifier === G.dashStick.touchId) {
+        if (G.player?.dashCharging && t.identifier === G.player.dashChargeTouchId) {
+          releaseDashCharge('touch', t.identifier);
+        } else {
+          clearDashStick();
+          if (G.player?.dashChargeTouchId === t.identifier) {
+            G.player.dashChargeTouchId = null;
+          }
+        }
       }
     }
+    reconcileTouchPointers(e.touches);
   });
 
   window.addEventListener('touchcancel', e => {
     if (!isTouchUILayout()) return;
     if (isTouchPortraitBlocked()) {
-      clearTouchSticks();
-      if (G.player?.dashCharging) cancelDashCharge(true);
+      resetTouchInputState();
       e.preventDefault();
       return;
     }
@@ -1393,10 +1434,29 @@ export function setupInput() {
         clearDashStick();
         import('../game.js').then(m => m.cancelStoryIntroDashCharge());
       }
-      // Cancel dash charge on touch cancel (refund drain, not initial cost)
-      if (G.player && G.player.dashCharging && t.identifier === G.player.dashChargeTouchId) {
-        cancelDashCharge(true);
+      if (G.dashStick.active && t.identifier === G.dashStick.touchId) {
+        if (G.player?.dashCharging && t.identifier === G.player.dashChargeTouchId) {
+          cancelDashCharge(true);
+        } else {
+          clearDashStick();
+          if (G.player?.dashChargeTouchId === t.identifier) {
+            G.player.dashChargeTouchId = null;
+          }
+        }
       }
+    }
+    reconcileTouchPointers(e.touches);
+  });
+
+  window.addEventListener('blur', () => {
+    if (!isTouchUILayout()) return;
+    resetTouchInputState();
+  });
+
+  document.addEventListener('visibilitychange', () => {
+    if (!isTouchUILayout()) return;
+    if (document.visibilityState === 'hidden') {
+      resetTouchInputState();
     }
   });
 
