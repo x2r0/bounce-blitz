@@ -445,9 +445,6 @@ function ensureTouchUI() {
       color: rgba(215, 232, 251, 0.72);
       font-size: 13px;
     }
-    .bb-touch-corner-btn.is-visible {
-      display: flex;
-    }
     #bb-touch-back {
       left: calc(12px + env(safe-area-inset-left, 0px));
       display: none;
@@ -468,6 +465,10 @@ function ensureTouchUI() {
       background: linear-gradient(180deg, rgba(112, 75, 255, 0.96), rgba(84, 48, 215, 0.94));
       border-color: rgba(198, 184, 255, 0.52);
       box-shadow: 0 14px 34px rgba(60, 28, 160, 0.34);
+    }
+    #bb-touch-back.is-visible,
+    #bb-touch-pause.is-visible {
+      display: flex;
     }
     .bb-touch-back-arrow {
       font-size: 20px;
@@ -760,7 +761,7 @@ export function syncTouchOverlay() {
   }
 
   if (pauseBtn) {
-    const showPause = G.state === STATE.PLAYING || G.state === STATE.BOSS_FIGHT;
+    const showPause = G.state === STATE.PLAYING || G.state === STATE.BOSS_FIGHT || G.state === STATE.WAVE_BREAK;
     pauseBtn.classList.toggle('is-visible', showPause);
   }
 
