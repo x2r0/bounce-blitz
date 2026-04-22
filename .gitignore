@@ -8,3 +8,6 @@ debug-panel.js
 index_test.html
 .DS_Store
 test-results/
+
+# Cover-generator staging (large raw AI renders, not canonical output)
+assets/raw/
