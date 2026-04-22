@@ -11,7 +11,7 @@
  */
 
 import platformSDK from './platform-sdk.js';
-import { setForcedMuted } from './systems/audio.js';
+import { setForcedMuted, resumeAudio } from './systems/audio.js';
 import { installCrazyGamesDataStorage, migrateLocalStorageToCrazyGamesData } from './systems/storage.js';
 import {
   CRAZYGAMES_LEADERBOARD_CONFIG,
@@ -81,6 +81,11 @@ const crazyGamesAdapter = {
   },
 
   gameplayStart() {
+    // gameplayStart is always triggered by a user action (tapping Play/Start
+    // in the portal UI). The CrazyGames mobile webview sometimes swallows
+    // the early gestures that would normally unlock the AudioContext from
+    // the title screen, so nudge it here as a backup.
+    try { resumeAudio(); } catch { /* ignore */ }
     if (cg) cg.game.gameplayStart();
   },
 
@@ -97,10 +102,14 @@ const crazyGamesAdapter = {
         },
         adFinished: () => {
           setForcedMuted(false);
+          // The portal returns control via another user tap on "Resume";
+          // resume the context in case iOS suspended it during the ad.
+          try { resumeAudio(); } catch { /* ignore */ }
           resolve();
         },
         adError:    () => {
           setForcedMuted(false);
+          try { resumeAudio(); } catch { /* ignore */ }
           resolve();
         },
       });

@@ -29,11 +29,33 @@ function ensureCtx() {
   return audioCtx;
 }
 
-// Resume on user gesture (required by browsers)
+// Resume on user gesture (required by browsers).
+//
+// iOS WKWebView — including the one the CrazyGames mobile app runs the game
+// inside — only fully unlocks the AudioContext when a zero-length buffer is
+// started synchronously inside the gesture callback. ctx.resume() alone can
+// silently leave playback muted on those webviews, which is why the game
+// had audio in mobile Safari but not inside the CrazyGames mobile app.
+function _playSilentUnlockBuffer(ctx) {
+  try {
+    const buffer = ctx.createBuffer(1, 1, 22050);
+    const source = ctx.createBufferSource();
+    source.buffer = buffer;
+    source.connect(ctx.destination);
+    if (typeof source.start === 'function') source.start(0);
+    else if (typeof source.noteOn === 'function') source.noteOn(0);
+  } catch { /* older Safari builds without BufferSource — ignore */ }
+}
+
 export function resumeAudio() {
   const ctx = ensureCtx();
+  _playSilentUnlockBuffer(ctx);
   if (ctx.state === 'suspended') return ctx.resume();
   return Promise.resolve();
+}
+
+export function isAudioUnlocked() {
+  return !!audioCtx && audioCtx.state === 'running';
 }
 
 export function ensureTitleMusicStarted() {
