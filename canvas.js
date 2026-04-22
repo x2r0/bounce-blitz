@@ -1,7 +1,7 @@
 'use strict';
 
 import { W, H, FONT } from './config.js';
-import { getFxBlur, IS_EMBEDDED, IS_SAFARI } from './systems/runtime-flags.js';
+import { getFxBlur, REDUCED_FX, REDUCED_FX_EMBED } from './systems/runtime-flags.js';
 
 export const C = document.getElementById('c');
 export const ctx = C.getContext('2d', { alpha: false, desynchronized: true }) || C.getContext('2d');
@@ -16,7 +16,7 @@ function getDeviceCanvasScale() {
   const dpr = Math.max(1, window.devicePixelRatio || 1);
   const isTouchDevice = ('ontouchstart' in window) || (navigator.maxTouchPoints || 0) > 0;
   const cap = isTouchDevice
-    ? (IS_SAFARI && IS_EMBEDDED ? 2.5 : 3)
+    ? (REDUCED_FX_EMBED ? 2.25 : REDUCED_FX ? 2.5 : 3)
     : 2;
   return Math.max(1, Math.min(dpr, cap));
 }

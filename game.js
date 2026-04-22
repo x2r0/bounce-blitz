@@ -9,7 +9,7 @@ import {
 import { rand, dist, lerp, formatScore, formatTime } from './utils.js';
 import { events } from './eventbus.js';
 import { G, resetGameState } from './state.js';
-import { ctx, gridCanvas, drawGlowText } from './canvas.js';
+import { C, ctx, gridCanvas, drawGlowText } from './canvas.js';
 import { hasSavedRun, clearRunState, loadSettings, loadHighScore } from './systems/save.js';
 
 import { updatePlayer, damagePlayer, drawPlayer } from './entities/player.js';
@@ -78,7 +78,8 @@ import {
   sfxUIClick, sfxMultiPop, sfxGravityBomb,
   startMusic, stopMusic, setMusicIntensity, setBossMusic, setMusicState,
   setPlayerActivity,
-  getMusicVolume, getSfxVolume, isMuted, setMusicVolume, setSfxVolume, toggleMute
+  getMusicVolume, getSfxVolume, isMuted, setMusicVolume, setSfxVolume, toggleMute,
+  isAudioUnlocked
 } from './systems/audio.js';
 import platformSDK from './platform-sdk.js';
 import { setupCrazyGames } from './platform-crazygames.js';
@@ -5943,14 +5944,28 @@ async function bootstrap() {
   platformSDK.loadingDone();
   G.state = STATE.TITLE;
 
-  // Start title music on very first user gesture (browsers require gesture for AudioContext)
+  // Start title music on the first user gesture (browsers require a gesture
+  // for AudioContext). We can't use { once: true }: some hosts (notably the
+  // CrazyGames mobile webview) swallow or mis-route the very first touch
+  // through their loading chrome, leaving us with a removed listener and a
+  // context that never unlocks. Instead we listen for the widest possible
+  // set of gesture events on both the document and the canvas, and stop
+  // only once the AudioContext is actually running.
+  const _GESTURE_EVENTS = ['pointerdown', 'touchstart', 'touchend', 'mousedown', 'click', 'keydown'];
+  const _gestureTargets = [document, C].filter(Boolean);
   function _onFirstGesture() {
     ensureTitleMusicStarted();
-    document.removeEventListener('pointerdown', _onFirstGesture);
-    document.removeEventListener('keydown', _onFirstGesture);
+    if (isAudioUnlocked()) {
+      for (const target of _gestureTargets) {
+        for (const ev of _GESTURE_EVENTS) target.removeEventListener(ev, _onFirstGesture);
+      }
+    }
   }
-  document.addEventListener('pointerdown', _onFirstGesture, { once: true });
-  document.addEventListener('keydown', _onFirstGesture, { once: true });
+  for (const target of _gestureTargets) {
+    for (const ev of _GESTURE_EVENTS) {
+      target.addEventListener(ev, _onFirstGesture, { passive: true });
+    }
+  }
 
   requestAnimationFrame(gameLoop);
 }

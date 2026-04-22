@@ -29,11 +29,65 @@ function ensureCtx() {
   return audioCtx;
 }
 
-// Resume on user gesture (required by browsers)
+// Resume on user gesture (required by browsers).
+//
+// iOS WKWebView — including the one the CrazyGames mobile app runs the game
+// inside — only fully unlocks the AudioContext when a zero-length buffer is
+// started synchronously inside the gesture callback. ctx.resume() alone can
+// silently leave playback muted on those webviews, which is why the game
+// had audio in mobile Safari but not inside the CrazyGames mobile app.
+function _playSilentUnlockBuffer(ctx) {
+  try {
+    const buffer = ctx.createBuffer(1, 1, 22050);
+    const source = ctx.createBufferSource();
+    source.buffer = buffer;
+    source.connect(ctx.destination);
+    if (typeof source.start === 'function') source.start(0);
+    else if (typeof source.noteOn === 'function') source.noteOn(0);
+  } catch { /* older Safari builds without BufferSource — ignore */ }
+}
+
+// iOS physical silent switch silences WebAudio by default. Playing a silent
+// looping HTMLAudioElement alongside the AudioContext makes iOS classify the
+// tab as "playing media", which then IGNORES the silent switch for the whole
+// audio pipeline — including WebAudio. This is the widely-used "silent audio
+// trick" for mobile web games. The data URI is a ~0.5s silent MP3 (~200 bytes).
+let _silentAudioEl = null;
+const _SILENT_MP3 =
+  'data:audio/mp3;base64,SUQzBAAAAAAAI1RTU0UAAAAPAAADTGF2ZjU4Ljc2L' +
+  'jEwMAAAAAAAAAAAAAAA//tQxAADB8AhSmxhIIEVCSiJrDCQBTcu3UrAIwUdkRgQ' +
+  'bFAZC1CQEwTJ9mjRvBA4UOLD8nKVOWfh+UlK3z/177OXrfOdKl7pyn3Xf//Wrey' +
+  'TRUoAWgBgkOAGbZHBgG1OF6zM82DWbZaUmMBptgQhGjsyYqc9ae9XFz280948N' +
+  'MBWInljyzsNRFLPWdnZGWrddDsjK1unuSrVN9jJsK8KuQtQCtMBjCEtImISdNK' +
+  'JOopIpBFpNSMbIHCSRpRR5iakjTiyzLhchUUBwCgyKiweFwwJcI2WGYpodPKQj' +
+  '0HFgMpWjsnGsWVAZIIDAMZGh4JgIKo9DocxFn+5qcqxvVpNvO5o5CnF66suuyj' +
+  'wNdu2l6VnZmdq+Z3+72/PX5n4f/uqvnP6/5WXcyz48KS';
+function _unlockHTMLAudio() {
+  if (_silentAudioEl) return;
+  try {
+    _silentAudioEl = new Audio(_SILENT_MP3);
+    _silentAudioEl.loop = true;
+    // iOS refuses to play volume 0; tiny-but-nonzero keeps it silent yet valid.
+    _silentAudioEl.volume = 0.001;
+    _silentAudioEl.setAttribute('playsinline', '');
+    _silentAudioEl.setAttribute('webkit-playsinline', '');
+    const playPromise = _silentAudioEl.play();
+    if (playPromise && typeof playPromise.catch === 'function') {
+      playPromise.catch(() => { /* autoplay rejected — harmless, retry next gesture */ });
+    }
+  } catch { /* ignore */ }
+}
+
 export function resumeAudio() {
+  _unlockHTMLAudio();
   const ctx = ensureCtx();
+  _playSilentUnlockBuffer(ctx);
   if (ctx.state === 'suspended') return ctx.resume();
   return Promise.resolve();
+}
+
+export function isAudioUnlocked() {
+  return !!audioCtx && audioCtx.state === 'running';
 }
 
 export function ensureTitleMusicStarted() {

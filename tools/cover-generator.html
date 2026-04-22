@@ -1,0 +1,1004 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Bounce Blitz — Cover Generator</title>
+<style>
+  :root { color-scheme: dark; }
+  body {
+    margin: 0;
+    padding: 24px;
+    background: #0b0b12;
+    color: #e8e8f0;
+    font: 14px/1.5 -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  }
+  h1 { font-size: 16px; font-weight: 600; margin: 0 0 4px; letter-spacing: .02em; }
+  p  { margin: 0 0 20px; color: #9aa0b4; }
+  section {
+    margin-bottom: 36px;
+    padding: 16px;
+    background: #14141f;
+    border: 1px solid #1f1f2d;
+    border-radius: 10px;
+  }
+  section h2 { font-size: 13px; margin: 0 0 10px; color: #9aa0b4; font-weight: 500; letter-spacing: .06em; text-transform: uppercase; }
+  canvas {
+    display: block;
+    max-width: 100%;
+    height: auto;
+    background: #000;
+    border-radius: 6px;
+  }
+  button {
+    margin-top: 12px;
+    padding: 8px 14px;
+    background: #00ffff;
+    color: #000;
+    border: 0;
+    border-radius: 6px;
+    font-weight: 700;
+    letter-spacing: .04em;
+    cursor: pointer;
+  }
+  button:hover { background: #66ffff; }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; }
+  .muted { color: #6a6f85; font-size: 12px; }
+</style>
+</head>
+<body>
+  <h1>Bounce Blitz — Cover Generator</h1>
+  <p>Two covers sized for the portals they target. The scene is drawn with the game's real neon palette so the tile matches the in-engine look.</p>
+
+  <section>
+    <h2>CrazyGames tile — 800 × 600 (4:3)</h2>
+    <canvas id="cgCover" width="800" height="600"></canvas>
+    <div class="row">
+      <button data-target="cgCover" data-filename="bounce-blitz-cover-800x600.png">Download PNG</button>
+      <button data-target="cgCover" data-filename="bounce-blitz-cover-512x384.png" data-scale="0.64">Download 512×384</button>
+    </div>
+    <p class="muted">CrazyGames tiles render at ~200–300 px wide on mobile. Designed to stay readable at that size.</p>
+  </section>
+
+  <section>
+    <h2>Open Graph / social share — 1200 × 630</h2>
+    <canvas id="ogCover" width="1200" height="630"></canvas>
+    <div class="row">
+      <button data-target="ogCover" data-filename="og-image-1200x630.png">Download PNG</button>
+    </div>
+    <p class="muted">Replaces <code>assets/og-image-1200x630.png</code>.</p>
+  </section>
+
+<script type="module">
+// =========================================================================
+//  Bounce Blitz cover generator
+//  Draws the cover in the game's real neon palette + sprites so the tile
+//  matches what the player sees inside the arena.
+// =========================================================================
+
+// ---- Palette (pulled from entities/*.js and config.js) ---------------------
+const PAL = {
+  bg0:        '#050510',    // deep void
+  bg1:        '#14102a',    // mid purple
+  bg2:        '#2a1550',    // accent purple
+  grid:       '#1f1f3a',
+  player:     '#00ffff',
+  playerGlow: '#66ffff',
+  thunder:    '#88eeff',
+  magenta:    '#ff44ff',
+  magentaHot: '#ff66ff',
+  purple:     '#cc44ff',
+  teleporter: '#8844cc',
+  bomber:     '#ff2200',
+  fuseYellow: '#ffdd00',
+  warning:    '#ffaa00',
+  white:      '#ffffff',
+  shieldCyan: '#44ddff',
+};
+
+// ---------- LOW-LEVEL PRIMITIVES -------------------------------------------
+
+/** Radial background with a warm glow at the focal point. */
+function paintBackdrop(ctx, W, H, focalX, focalY) {
+  const bg = ctx.createRadialGradient(focalX, focalY, 0, W * 0.5, H * 0.55, Math.hypot(W, H) * 0.7);
+  bg.addColorStop(0.0, PAL.bg2);
+  bg.addColorStop(0.35, PAL.bg1);
+  bg.addColorStop(1.0, PAL.bg0);
+  ctx.fillStyle = bg;
+  ctx.fillRect(0, 0, W, H);
+
+  // Subtle vignette
+  const vg = ctx.createRadialGradient(W * 0.5, H * 0.5, Math.min(W, H) * 0.3, W * 0.5, H * 0.5, Math.max(W, H) * 0.75);
+  vg.addColorStop(0, 'rgba(0,0,0,0)');
+  vg.addColorStop(1, 'rgba(0,0,0,0.55)');
+  ctx.fillStyle = vg;
+  ctx.fillRect(0, 0, W, H);
+}
+
+/** Perspective hex grid suggesting the arena floor. */
+function paintHexFloor(ctx, W, H) {
+  ctx.save();
+  ctx.strokeStyle = PAL.grid;
+  ctx.lineWidth = 1;
+  ctx.globalAlpha = 0.55;
+  const step = Math.max(26, Math.round(W / 28));
+  const skew = 0.32;
+  for (let y = -step; y < H + step; y += step) {
+    const p = (y - H * 0.35) / H; // 0 at horizon
+    const a = Math.max(0.05, Math.min(0.9, 0.15 + p * 0.9));
+    ctx.globalAlpha = a * 0.6;
+    ctx.beginPath();
+    ctx.moveTo(0, y);
+    ctx.lineTo(W, y + skew * step);
+    ctx.stroke();
+  }
+  for (let x = -step; x < W + step * 2; x += step) {
+    ctx.globalAlpha = 0.2;
+    ctx.beginPath();
+    ctx.moveTo(x, 0);
+    ctx.lineTo(x + skew * H, H);
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+/** Soft radial halo (used behind the player & enemies). */
+function paintGlow(ctx, x, y, radius, color, alpha = 0.9) {
+  const g = ctx.createRadialGradient(x, y, 0, x, y, radius);
+  g.addColorStop(0, color);
+  g.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  ctx.globalCompositeOperation = 'lighter';
+  ctx.fillStyle = g;
+  ctx.beginPath();
+  ctx.arc(x, y, radius, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+}
+
+// ---------- SCENE ENTITIES --------------------------------------------------
+
+/** The hero — white/cyan ball with two cartoon eyes (matches the in-game sprite).
+ *  `mood` options: 'neutral' | 'determined' | 'surprised' | 'happy'. */
+function drawPlayerBall(ctx, x, y, r, opts = {}) {
+  const isDashing = opts.dashing !== false;
+  const mood = opts.mood ?? 'determined';
+  // `eyeDir` is how much the eyes look toward the direction of motion (0–1).
+  const eyeDir = opts.eyeDir ?? 0.8;
+  // Angle the eyes track, in radians. Default: look forward-right.
+  const gazeAngle = opts.gazeAngle ?? 0;
+  // `dramatic` enables cinematic rim-lighting + cast shadow for portrait comps.
+  const dramatic = !!opts.dramatic;
+  // Side the cyan rim light comes from, in radians (0 = right).
+  const rimAngle = opts.rimAngle ?? -0.5;
+
+  // Cast shadow on the ground below the hero (adds weight + depth)
+  if (dramatic) {
+    ctx.save();
+    ctx.globalAlpha = 0.5;
+    ctx.fillStyle = '#000';
+    ctx.beginPath();
+    ctx.ellipse(x, y + r * 1.05, r * 0.85, r * 0.18, 0, 0, Math.PI * 2);
+    ctx.filter = 'blur(8px)';
+    ctx.fill();
+    ctx.restore();
+  }
+
+  // Outer halo
+  paintGlow(ctx, x, y, r * 4.2, 'rgba(0,255,255,0.55)', 0.85);
+
+  // Dramatic back-rim magenta wash (cinematic back light)
+  if (dramatic) {
+    const bx = x - Math.cos(rimAngle) * r * 0.8;
+    const by = y - Math.sin(rimAngle) * r * 0.8;
+    paintGlow(ctx, bx, by, r * 3.2, 'rgba(255,68,255,0.55)', 0.85);
+  }
+
+  // Rim glow (cyan neon outline)
+  ctx.save();
+  ctx.shadowColor = PAL.playerGlow;
+  ctx.shadowBlur = dramatic ? 60 : 40;
+  ctx.strokeStyle = PAL.player;
+  ctx.lineWidth = Math.max(3, r * 0.08);
+  ctx.beginPath();
+  ctx.arc(x, y, r, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.restore();
+
+  // Pale core — white body with a breath of cyan at the edges, matching sprite
+  const lightX = x + Math.cos(rimAngle) * r * 0.35;
+  const lightY = y + Math.sin(rimAngle) * r * 0.35;
+  const core = ctx.createRadialGradient(lightX, lightY, 0, x, y, r);
+  core.addColorStop(0, '#ffffff');
+  core.addColorStop(0.55, '#eaffff');
+  core.addColorStop(1, dramatic ? '#5fc8d9' : '#b8f4ff');
+  ctx.fillStyle = core;
+  ctx.beginPath();
+  ctx.arc(x, y, r * 0.96, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Cinematic rim-light crescent — thin bright arc on the lit side
+  if (dramatic) {
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    const rimCenter = {
+      x: x + Math.cos(rimAngle) * r * 1.05,
+      y: y + Math.sin(rimAngle) * r * 1.05,
+    };
+    const rimGrad = ctx.createRadialGradient(rimCenter.x, rimCenter.y, 0, rimCenter.x, rimCenter.y, r * 1.2);
+    rimGrad.addColorStop(0, 'rgba(200,255,255,0.9)');
+    rimGrad.addColorStop(1, 'rgba(0,200,220,0)');
+    ctx.fillStyle = rimGrad;
+    ctx.beginPath();
+    ctx.arc(x, y, r * 0.98, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  // Two eyes — matching entities/player.js: WHITE sclera with a SMALL dark
+  // pupil. In-game ratios are scleraR=4, pupilR=2 on a ~r=16 player.
+  const eyeSpacing = r * (5 / 16);
+  const baseEyeY   = -r * (1 / 16);   // slightly lower than before so brow has room
+  const scleraR    =  r * (4 / 16);
+  // Determined squint = taller-than-wide pupil and scaled-down sclera height
+  const squashY    = mood === 'determined' ? 0.75 : mood === 'surprised' ? 1.3 : 1.0;
+  const pupilR     =  r * (2 / 16);
+  const gazeDx = Math.cos(gazeAngle) * scleraR * 0.5 * eyeDir;
+  const gazeDy = Math.sin(gazeAngle) * scleraR * 0.5 * eyeDir;
+
+  ctx.save();
+  ctx.translate(x, y);
+
+  for (const sign of [-1, 1]) {
+    const ex = sign * eyeSpacing;
+    // White sclera (squashed vertically when determined)
+    ctx.save();
+    ctx.translate(ex, baseEyeY);
+    ctx.scale(1, squashY);
+    ctx.fillStyle = '#ffffff';
+    ctx.beginPath();
+    ctx.arc(0, 0, scleraR, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(0,0,0,0.3)';
+    ctx.lineWidth = Math.max(0.8, r * 0.03);
+    ctx.stroke();
+    // Dark pupil, offset toward gaze
+    ctx.fillStyle = '#111111';
+    ctx.beginPath();
+    ctx.arc(gazeDx, gazeDy / squashY, pupilR, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  // Angry/determined eyebrows — two thick cyan slashes above the eyes
+  if (mood === 'determined') {
+    const browY = baseEyeY - scleraR * 1.15;
+    const browInner = r * 0.08;
+    const browOuter = r * 0.48;
+    const browThick = Math.max(1.8, r * 0.10);
+    ctx.save();
+    ctx.strokeStyle = '#00aac0';
+    ctx.lineCap = 'round';
+    ctx.lineWidth = browThick;
+    ctx.shadowColor = PAL.player;
+    ctx.shadowBlur = Math.max(4, r * 0.15);
+    for (const sign of [-1, 1]) {
+      ctx.beginPath();
+      // Inner-tip lower, outer-tip higher → angry furrow
+      ctx.moveTo(sign * browInner, browY + scleraR * 0.35);
+      ctx.lineTo(sign * browOuter, browY - scleraR * 0.25);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+  ctx.restore();
+
+  if (isDashing) {
+    // Surge charge ring (partial arc, golden — matches the in-game dash charge)
+    ctx.save();
+    ctx.strokeStyle = 'rgba(255, 221, 68, 0.9)';
+    ctx.shadowColor = PAL.fuseYellow;
+    ctx.shadowBlur = 24;
+    ctx.lineWidth = Math.max(2, r * 0.06);
+    ctx.beginPath();
+    ctx.arc(x, y, r * 1.35, -Math.PI * 0.3, Math.PI * 0.9);
+    ctx.stroke();
+    ctx.restore();
+  }
+}
+
+/** Thunder-dash trail tail — streak + sparse ghosts (not a chain of balls). */
+function drawDashTrail(ctx, x, y, r, angleDeg, length) {
+  const rad = (angleDeg * Math.PI) / 180;
+  const dx = Math.cos(rad);
+  const dy = Math.sin(rad);
+  const tailX = x - dx * length;
+  const tailY = y - dy * length;
+
+  // Perpendicular vector for building a tapered streak
+  const px = -dy;
+  const py = dx;
+
+  // Wide soft glow behind the streak
+  ctx.save();
+  ctx.globalCompositeOperation = 'lighter';
+  const streakGrad = ctx.createLinearGradient(x, y, tailX, tailY);
+  streakGrad.addColorStop(0, 'rgba(0,255,255,0.95)');
+  streakGrad.addColorStop(0.4, 'rgba(68,221,255,0.55)');
+  streakGrad.addColorStop(1, 'rgba(0,120,140,0)');
+  ctx.fillStyle = streakGrad;
+  ctx.shadowColor = PAL.player;
+  ctx.shadowBlur = 36;
+  ctx.beginPath();
+  // Hero end: wide (r * 1.05)
+  ctx.moveTo(x + px * r * 1.05, y + py * r * 1.05);
+  ctx.lineTo(x - px * r * 1.05, y - py * r * 1.05);
+  // Tail end: pointed (r * 0.05)
+  ctx.lineTo(tailX - px * r * 0.05, tailY - py * r * 0.05);
+  ctx.lineTo(tailX + px * r * 0.05, tailY + py * r * 0.05);
+  ctx.closePath();
+  ctx.fill();
+  ctx.restore();
+
+  // Just 2 afterimage ghosts, widely spaced and very faint
+  for (const t of [0.38, 0.72]) {
+    const gx = x - dx * length * t;
+    const gy = y - dy * length * t;
+    const gr = r * (1 - t * 0.7);
+    ctx.save();
+    ctx.globalAlpha = 0.28 * (1 - t);
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.fillStyle = PAL.player;
+    ctx.shadowColor = PAL.player;
+    ctx.shadowBlur = 24;
+    ctx.beginPath();
+    ctx.arc(gx, gy, gr, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  // Electric jagged bolt down the spine of the streak
+  ctx.save();
+  ctx.strokeStyle = PAL.white;
+  ctx.lineWidth = 2.4;
+  ctx.shadowColor = PAL.thunder;
+  ctx.shadowBlur = 18;
+  ctx.globalCompositeOperation = 'lighter';
+  ctx.beginPath();
+  ctx.moveTo(x, y);
+  const steps = 10;
+  for (let i = 1; i <= steps; i++) {
+    const t = i / steps;
+    const jitter = (Math.random() - 0.5) * r * 0.8 * (1 - t * 0.5);
+    const nx = x - dx * length * t + px * jitter;
+    const ny = y - dy * length * t + py * jitter;
+    ctx.lineTo(nx, ny);
+  }
+  ctx.stroke();
+  ctx.restore();
+}
+
+/** Bomber enemy — angry spiked mine, darker and more aggressive than a sun. */
+function drawBomber(ctx, x, y, r, opts = {}) {
+  const rot = opts.rotation ?? -0.3;
+  // Warning glow — dim, tight
+  paintGlow(ctx, x, y, r * 2.6, 'rgba(255,40,0,0.65)', 0.75);
+
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.rotate(rot);
+
+  // Sharp asymmetric spikes (fewer, longer) — reads as "spiked mine"
+  const spikeCount = 6;
+  ctx.fillStyle = '#8a0f00';
+  ctx.shadowColor = PAL.bomber;
+  ctx.shadowBlur = 18;
+  for (let i = 0; i < spikeCount; i++) {
+    const ang = (i / spikeCount) * Math.PI * 2;
+    const tipR = r * 1.55;
+    const baseR = r * 0.72;
+    const baseSpread = 0.22;
+    ctx.beginPath();
+    ctx.moveTo(Math.cos(ang - baseSpread) * baseR, Math.sin(ang - baseSpread) * baseR);
+    ctx.lineTo(Math.cos(ang) * tipR, Math.sin(ang) * tipR);
+    ctx.lineTo(Math.cos(ang + baseSpread) * baseR, Math.sin(ang + baseSpread) * baseR);
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  // Dark body shell
+  ctx.shadowBlur = 0;
+  const body = ctx.createRadialGradient(-r * 0.3, -r * 0.3, 0, 0, 0, r);
+  body.addColorStop(0, '#5a0f05');
+  body.addColorStop(0.6, '#2a0502');
+  body.addColorStop(1, '#15000a');
+  ctx.fillStyle = body;
+  ctx.beginPath();
+  ctx.arc(0, 0, r * 0.78, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Red rim seam
+  ctx.strokeStyle = PAL.bomber;
+  ctx.lineWidth = Math.max(1.2, r * 0.06);
+  ctx.beginPath();
+  ctx.arc(0, 0, r * 0.78, 0, Math.PI * 2);
+  ctx.stroke();
+
+  // Lava crack fissures across the shell — the "damage" read
+  ctx.strokeStyle = PAL.fuseYellow;
+  ctx.shadowColor = PAL.fuseYellow;
+  ctx.shadowBlur = 14;
+  ctx.lineWidth = Math.max(1.5, r * 0.05);
+  ctx.lineCap = 'round';
+  const cracks = [
+    [[-r * 0.55, -r * 0.1], [-r * 0.15, r * 0.05], [ r * 0.05, -r * 0.25], [ r * 0.3, -r * 0.1]],
+    [[-r * 0.4, r * 0.35], [-r * 0.05, r * 0.2], [ r * 0.25, r * 0.4]],
+    [[ r * 0.6, -r * 0.2], [ r * 0.35, r * 0.1], [ r * 0.5, r * 0.35]],
+  ];
+  for (const path of cracks) {
+    ctx.beginPath();
+    ctx.moveTo(path[0][0], path[0][1]);
+    for (let i = 1; i < path.length; i++) ctx.lineTo(path[i][0], path[i][1]);
+    ctx.stroke();
+  }
+  ctx.shadowBlur = 0;
+
+  // Fuse core — hot center (drawn AFTER cracks so it sits on top)
+  const core = ctx.createRadialGradient(0, 0, 0, 0, 0, r * 0.55);
+  core.addColorStop(0, PAL.white);
+  core.addColorStop(0.35, PAL.fuseYellow);
+  core.addColorStop(0.75, PAL.bomber);
+  core.addColorStop(1, 'rgba(255,0,0,0)');
+  ctx.fillStyle = core;
+  ctx.beginPath();
+  ctx.arc(0, 0, r * 0.42, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.restore();
+}
+
+/** Teleporter enemy — purple, half-phased with after-ghost. */
+function drawTeleporter(ctx, x, y, r) {
+  // Warp ghost (ahead of actual position)
+  const ghostDx = -r * 1.4;
+  const ghostDy = -r * 0.6;
+  ctx.save();
+  ctx.globalAlpha = 0.45;
+  ctx.fillStyle = PAL.purple;
+  ctx.shadowColor = PAL.purple;
+  ctx.shadowBlur = 26;
+  ctx.beginPath();
+  ctx.arc(x + ghostDx, y + ghostDy, r * 0.9, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+
+  paintGlow(ctx, x, y, r * 3.2, 'rgba(204,68,255,0.55)', 0.85);
+
+  // Faceted diamond body
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.rotate(0.15);
+  ctx.fillStyle = PAL.purple;
+  ctx.shadowColor = PAL.magenta;
+  ctx.shadowBlur = 24;
+  ctx.beginPath();
+  ctx.moveTo(0, -r);
+  ctx.lineTo(r * 0.9, 0);
+  ctx.lineTo(0, r);
+  ctx.lineTo(-r * 0.9, 0);
+  ctx.closePath();
+  ctx.fill();
+
+  // Inner crystal
+  ctx.fillStyle = PAL.magentaHot;
+  ctx.beginPath();
+  ctx.moveTo(0, -r * 0.5);
+  ctx.lineTo(r * 0.45, 0);
+  ctx.lineTo(0, r * 0.5);
+  ctx.lineTo(-r * 0.45, 0);
+  ctx.closePath();
+  ctx.fill();
+
+  // Angry eyes
+  ctx.fillStyle = PAL.white;
+  ctx.fillRect(-r * 0.22, -r * 0.05, r * 0.12, r * 0.06);
+  ctx.fillRect( r * 0.10, -r * 0.05, r * 0.12, r * 0.06);
+  ctx.restore();
+}
+
+/** Shockwave ring behind the action. */
+function drawShockwave(ctx, x, y, r, color, lineWidth) {
+  ctx.save();
+  ctx.globalCompositeOperation = 'lighter';
+  ctx.strokeStyle = color;
+  ctx.shadowColor = color;
+  ctx.shadowBlur = 28;
+  ctx.lineWidth = lineWidth;
+  ctx.globalAlpha = 0.9;
+  ctx.beginPath();
+  ctx.arc(x, y, r, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.globalAlpha = 0.35;
+  ctx.lineWidth = lineWidth * 2.4;
+  ctx.beginPath();
+  ctx.arc(x, y, r, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.restore();
+}
+
+/** Motion streaks for speed effect. */
+function drawMotionStreaks(ctx, W, H, count, angleDeg) {
+  const rad = (angleDeg * Math.PI) / 180;
+  ctx.save();
+  ctx.globalCompositeOperation = 'lighter';
+  for (let i = 0; i < count; i++) {
+    const x = Math.random() * W;
+    const y = Math.random() * H;
+    const len = 80 + Math.random() * 180;
+    const a = 0.08 + Math.random() * 0.18;
+    ctx.globalAlpha = a;
+    ctx.strokeStyle = PAL.thunder;
+    ctx.lineWidth = 1 + Math.random() * 1.5;
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+    ctx.lineTo(x - Math.cos(rad) * len, y - Math.sin(rad) * len);
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+// ---------- TYPOGRAPHY ------------------------------------------------------
+
+/** Chunky layered logo: dark extrude + magenta shadow + cyan fill + white rim. */
+function drawLogo(ctx, text, x, y, fontSize, opts = {}) {
+  const weight = opts.weight ?? 900;
+  const family = opts.family ?? "'Impact','Arial Black',system-ui,sans-serif";
+  ctx.save();
+  ctx.font = `${weight} ${fontSize}px ${family}`;
+  ctx.textAlign = opts.align ?? 'center';
+  ctx.textBaseline = 'middle';
+  ctx.letterSpacing = '2px';
+
+  // Shadow extrusion (stacked magenta offset)
+  for (let i = 8; i >= 1; i--) {
+    ctx.fillStyle = i === 8
+      ? 'rgba(40,0,30,0.6)'
+      : `rgba(255,68,255,${0.25 + i * 0.06})`;
+    ctx.fillText(text, x + i * 0.8, y + i * 0.8);
+  }
+
+  // Glow halo
+  ctx.shadowColor = PAL.magentaHot;
+  ctx.shadowBlur = 30;
+  ctx.fillStyle = PAL.player;
+  ctx.fillText(text, x, y);
+
+  // Core fill (second pass, no shadow, so text stays crisp)
+  ctx.shadowBlur = 0;
+  const grad = ctx.createLinearGradient(x, y - fontSize * 0.55, x, y + fontSize * 0.55);
+  grad.addColorStop(0, '#d6ffff');
+  grad.addColorStop(0.5, PAL.player);
+  grad.addColorStop(1, '#009aa8');
+  ctx.fillStyle = grad;
+  ctx.fillText(text, x, y);
+
+  // Outline rim
+  ctx.strokeStyle = PAL.white;
+  ctx.lineWidth = Math.max(2, fontSize * 0.028);
+  ctx.strokeText(text, x, y);
+  ctx.restore();
+}
+
+/** Small subtitle in a neon chip. */
+function drawSubtitle(ctx, text, x, y, fontSize, opts = {}) {
+  ctx.save();
+  ctx.font = `700 ${fontSize}px 'Arial Black','Impact',system-ui,sans-serif`;
+  ctx.textAlign = opts.align ?? 'center';
+  ctx.textBaseline = 'middle';
+  ctx.letterSpacing = '8px';
+  // Chip bg
+  const metrics = ctx.measureText(text);
+  const w = metrics.width + fontSize * 1.6;
+  const h = fontSize * 1.6;
+  const bx = x - (opts.align === 'left' ? 0 : w / 2);
+  const by = y - h / 2;
+  ctx.fillStyle = 'rgba(255, 68, 255, 0.9)';
+  ctx.shadowColor = PAL.magentaHot;
+  ctx.shadowBlur = 20;
+  roundRect(ctx, bx, by, w, h, h * 0.35);
+  ctx.fill();
+  ctx.shadowBlur = 0;
+  ctx.fillStyle = '#15001a';
+  ctx.fillText(text, opts.align === 'left' ? x + fontSize * 0.8 : x, y);
+  ctx.restore();
+}
+
+/** Atmospheric floating dust particles — adds scale + depth. */
+function drawAtmosphereParticles(ctx, W, H, count = 40) {
+  ctx.save();
+  ctx.globalCompositeOperation = 'lighter';
+  for (let i = 0; i < count; i++) {
+    const x = Math.random() * W;
+    const y = Math.random() * H;
+    const depth = Math.random(); // 0 = far, 1 = near
+    const r = 0.6 + depth * 2.4;
+    const a = 0.12 + depth * 0.38;
+    ctx.globalAlpha = a;
+    ctx.fillStyle = depth > 0.5 ? PAL.playerGlow : '#ff88ff';
+    ctx.shadowColor = ctx.fillStyle;
+    ctx.shadowBlur = r * 3;
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.restore();
+}
+
+/** Enemy drawn as a blurred silhouette — for deep-background wave density. */
+function drawSilhouetteEnemy(ctx, x, y, r, kind = 'bomber') {
+  ctx.save();
+  ctx.filter = 'blur(3px)';
+  ctx.globalAlpha = 0.55;
+  if (kind === 'bomber') {
+    drawBomber(ctx, x, y, r, { rotation: (Math.random() - 0.5) * 1.2 });
+  } else {
+    drawTeleporter(ctx, x, y, r);
+  }
+  ctx.restore();
+}
+
+/** Overhead stage light — a soft beam, cinematic rim from above. */
+function drawStageLight(ctx, x, y, w, h, color, alpha = 0.25) {
+  ctx.save();
+  ctx.globalCompositeOperation = 'lighter';
+  const g = ctx.createLinearGradient(x, y, x, y + h);
+  g.addColorStop(0, color);
+  g.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.globalAlpha = alpha;
+  ctx.fillStyle = g;
+  ctx.beginPath();
+  ctx.moveTo(x - w * 0.15, y);
+  ctx.lineTo(x + w * 0.15, y);
+  ctx.lineTo(x + w * 0.7, y + h);
+  ctx.lineTo(x - w * 0.7, y + h);
+  ctx.closePath();
+  ctx.fill();
+  ctx.restore();
+}
+
+/** Lens flare — bright highlight where a collision just happened. */
+function drawLensFlare(ctx, x, y, size, color) {
+  ctx.save();
+  ctx.globalCompositeOperation = 'lighter';
+  // Central burst
+  const g1 = ctx.createRadialGradient(x, y, 0, x, y, size);
+  g1.addColorStop(0, '#ffffff');
+  g1.addColorStop(0.3, color);
+  g1.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.fillStyle = g1;
+  ctx.beginPath();
+  ctx.arc(x, y, size, 0, Math.PI * 2);
+  ctx.fill();
+  // Horizontal streak
+  const g2 = ctx.createLinearGradient(x - size * 2.5, y, x + size * 2.5, y);
+  g2.addColorStop(0, 'rgba(255,255,255,0)');
+  g2.addColorStop(0.5, 'rgba(255,255,255,0.8)');
+  g2.addColorStop(1, 'rgba(255,255,255,0)');
+  ctx.fillStyle = g2;
+  ctx.fillRect(x - size * 2.5, y - size * 0.08, size * 5, size * 0.16);
+  ctx.restore();
+}
+
+/** Vertical logo banner — bg ribbon + title + subtitle stacked inside it. */
+function drawLogoBanner(ctx, cx, cy, W, H, logo, subtitle, combo) {
+  const bannerH = H * 0.28;
+  const bannerY = cy - bannerH / 2;
+  ctx.save();
+
+  // Dark ribbon behind the logo so it always reads over the busy scene
+  const ribbonGrad = ctx.createLinearGradient(0, bannerY, 0, bannerY + bannerH);
+  ribbonGrad.addColorStop(0, 'rgba(0,0,0,0)');
+  ribbonGrad.addColorStop(0.2, 'rgba(8,4,28,0.8)');
+  ribbonGrad.addColorStop(0.8, 'rgba(8,4,28,0.8)');
+  ribbonGrad.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.fillStyle = ribbonGrad;
+  ctx.fillRect(0, bannerY, W, bannerH);
+  ctx.restore();
+
+  drawLogo(ctx, logo, cx, cy - H * 0.04, Math.round(H * 0.18));
+  drawSubtitle(ctx, subtitle, cx, cy + H * 0.075, Math.round(H * 0.04));
+}
+
+/** Arena floor: two sweeping neon arcs at the bottom, grounding the scene. */
+function drawArenaFloor(ctx, W, H) {
+  ctx.save();
+  ctx.globalCompositeOperation = 'lighter';
+
+  // Outer horizon arc (cyan)
+  const cx = W * 0.5;
+  const cy = H * 1.35;
+  ctx.strokeStyle = 'rgba(0,255,255,0.5)';
+  ctx.shadowColor = PAL.player;
+  ctx.shadowBlur = 30;
+  ctx.lineWidth = 3;
+  ctx.beginPath();
+  ctx.arc(cx, cy, H * 0.85, Math.PI * 1.2, Math.PI * 1.8);
+  ctx.stroke();
+
+  // Inner floor arc (magenta) slightly nearer
+  ctx.strokeStyle = 'rgba(255,68,255,0.35)';
+  ctx.shadowColor = PAL.magentaHot;
+  ctx.shadowBlur = 22;
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.arc(cx, cy * 0.95, H * 0.7, Math.PI * 1.25, Math.PI * 1.75);
+  ctx.stroke();
+
+  ctx.restore();
+}
+
+/** Combo-score badge — sells "there's progression and juice here". */
+function drawComboChip(ctx, x, y, combo, opts = {}) {
+  const scale = opts.scale ?? 1;
+  const fs1 = 22 * scale;
+  const fs2 = 44 * scale;
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.rotate(-0.06);
+
+  // Measure combo text
+  ctx.font = `900 ${fs2}px 'Impact','Arial Black',system-ui,sans-serif`;
+  const cw = ctx.measureText(`×${combo}`).width;
+  ctx.font = `900 ${fs1}px 'Impact','Arial Black',system-ui,sans-serif`;
+  const lw = ctx.measureText('COMBO').width;
+  const w = Math.max(cw, lw) + fs1 * 1.2;
+  const h = fs2 + fs1 + 14 * scale;
+  const bx = -w / 2;
+  const by = -h / 2;
+
+  // Chip body
+  ctx.fillStyle = 'rgba(255,221,0,0.95)';
+  ctx.shadowColor = PAL.fuseYellow;
+  ctx.shadowBlur = 26 * scale;
+  roundRect(ctx, bx, by, w, h, h * 0.22);
+  ctx.fill();
+  ctx.shadowBlur = 0;
+  // Inner stroke
+  ctx.strokeStyle = '#5a2e00';
+  ctx.lineWidth = Math.max(1.5, 3 * scale);
+  roundRect(ctx, bx + 4 * scale, by + 4 * scale, w - 8 * scale, h - 8 * scale, h * 0.18);
+  ctx.stroke();
+
+  // Text
+  ctx.fillStyle = '#2a0f00';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.font = `900 ${fs1}px 'Impact','Arial Black',system-ui,sans-serif`;
+  ctx.fillText('COMBO', 0, -fs2 * 0.35);
+  ctx.font = `900 ${fs2}px 'Impact','Arial Black',system-ui,sans-serif`;
+  ctx.fillText(`×${combo}`, 0, fs1 * 0.55);
+  ctx.restore();
+}
+
+function roundRect(ctx, x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.lineTo(x + w - r, y);
+  ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+  ctx.lineTo(x + w, y + h - r);
+  ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+  ctx.lineTo(x + r, y + h);
+  ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+  ctx.lineTo(x, y + r);
+  ctx.quadraticCurveTo(x, y, x + r, y);
+  ctx.closePath();
+}
+
+// ---------- COMPOSITIONS ----------------------------------------------------
+
+/**
+ * CrazyGames tile: logo dominates top half, action frame bottom half.
+ * Designed to stay legible at 200px wide.
+ */
+function renderCrazyGamesTile(ctx, W, H) {
+  // --- LAYER 1: rich backdrop with strong center focal point -------------
+  // Deeper, richer gradient — less "flat black", more "stage"
+  ctx.save();
+  const baseBg = ctx.createRadialGradient(W * 0.5, H * 0.58, 0, W * 0.5, H * 0.58, Math.hypot(W, H) * 0.75);
+  baseBg.addColorStop(0.0, '#3a1070');
+  baseBg.addColorStop(0.35, '#1a0640');
+  baseBg.addColorStop(0.75, '#06021a');
+  baseBg.addColorStop(1.0, '#000000');
+  ctx.fillStyle = baseBg;
+  ctx.fillRect(0, 0, W, H);
+  ctx.restore();
+
+  // --- LAYER 2: overhead stage lights from above (cinematic) -------------
+  drawStageLight(ctx, W * 0.3, 0, W * 0.25, H * 0.85, 'rgba(0,200,255,0.28)', 0.5);
+  drawStageLight(ctx, W * 0.75, 0, W * 0.30, H * 0.85, 'rgba(255,68,255,0.22)', 0.45);
+
+  // --- LAYER 3: deep-background silhouette enemies (blurred, far) --------
+  drawSilhouetteEnemy(ctx, W * 0.12, H * 0.30, H * 0.05, 'bomber');
+  drawSilhouetteEnemy(ctx, W * 0.92, H * 0.36, H * 0.05, 'teleporter');
+  drawSilhouetteEnemy(ctx, W * 0.85, H * 0.22, H * 0.04, 'bomber');
+
+  // Arena horizon glow (single low band)
+  ctx.save();
+  ctx.globalCompositeOperation = 'lighter';
+  const horizon = ctx.createLinearGradient(0, H * 0.88, 0, H);
+  horizon.addColorStop(0, 'rgba(255,68,255,0)');
+  horizon.addColorStop(1, 'rgba(255,68,255,0.55)');
+  ctx.fillStyle = horizon;
+  ctx.fillRect(0, H * 0.88, W, H * 0.12);
+  ctx.restore();
+
+  drawArenaFloor(ctx, W, H);
+
+  // --- LAYER 4: atmospheric particles for depth --------------------------
+  drawAtmosphereParticles(ctx, W, H, 60);
+
+  // --- LAYER 5: mid-ground enemies (smaller, sharper) --------------------
+  // A pair of bombers closing in behind the primary action
+  ctx.save();
+  ctx.globalAlpha = 0.85;
+  drawBomber(ctx, W * 0.88, H * 0.66, H * 0.085, { rotation: 0.4 });
+  drawBomber(ctx, W * 0.70, H * 0.86, H * 0.075, { rotation: -0.8 });
+  ctx.restore();
+
+  // --- LAYER 6: primary threat + impact shockwave ------------------------
+  // Primary bomber is big and hero's dashing into it
+  drawShockwave(ctx, W * 0.70, H * 0.60, H * 0.22, PAL.magenta, 4);
+  drawLensFlare(ctx, W * 0.74, H * 0.58, H * 0.09, 'rgba(255,220,0,0.9)');
+  drawBomber(ctx, W * 0.80, H * 0.62, H * 0.14, { rotation: -0.25 });
+
+  // --- LAYER 7: HERO — big, centered, dramatic ---------------------------
+  const heroX = W * 0.34;
+  const heroY = H * 0.62;
+  const heroR = H * 0.22;
+
+  // Dash trail sweeps in from upper-left, exits frame
+  drawDashTrail(ctx, heroX, heroY, heroR, 40, W * 0.45);
+
+  drawPlayerBall(ctx, heroX, heroY, heroR, {
+    mood: 'determined',
+    eyeDir: 1,
+    gazeAngle: 0,
+    dramatic: true,
+    rimAngle: -0.4,
+  });
+
+  // --- LAYER 8: foreground sparks / chromatic accents --------------------
+  ctx.save();
+  ctx.globalCompositeOperation = 'lighter';
+  for (let i = 0; i < 18; i++) {
+    const angle = Math.random() * Math.PI * 2;
+    const dist = heroR * (1.1 + Math.random() * 1.8);
+    const sx = W * 0.70 + Math.cos(angle) * dist;
+    const sy = H * 0.60 + Math.sin(angle) * dist;
+    ctx.fillStyle = Math.random() > 0.5 ? PAL.fuseYellow : PAL.white;
+    ctx.shadowColor = PAL.fuseYellow;
+    ctx.shadowBlur = 8;
+    ctx.globalAlpha = 0.6 + Math.random() * 0.4;
+    ctx.beginPath();
+    ctx.arc(sx, sy, 1.5 + Math.random() * 2.5, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.restore();
+
+  // --- LAYER 9: edge vignette to force eye to center ---------------------
+  ctx.save();
+  const vg = ctx.createRadialGradient(W * 0.5, H * 0.55, Math.min(W, H) * 0.3, W * 0.5, H * 0.5, Math.max(W, H) * 0.7);
+  vg.addColorStop(0, 'rgba(0,0,0,0)');
+  vg.addColorStop(1, 'rgba(0,0,0,0.7)');
+  ctx.fillStyle = vg;
+  ctx.fillRect(0, 0, W, H);
+  ctx.restore();
+
+  // --- LAYER 10: type + HUD ---------------------------------------------
+  // Logo banner at the top
+  drawLogoBanner(ctx, W * 0.5, H * 0.18, W, H, 'BOUNCE BLITZ', 'SURVIVE THE WAVES');
+
+  // COMBO chip — floating combat text in the upper-right, as if the combo
+  // just got racked up in-world
+  drawComboChip(ctx, W * 0.84, H * 0.40, 24, { scale: H / 800 });
+}
+
+/** OG banner: wider layout. Logo left, single action beat right. */
+function renderOGBanner(ctx, W, H) {
+  paintBackdrop(ctx, W, H, W * 0.78, H * 0.55);
+
+  // Right-side hero action (mirrors the CG tile composition, stretched)
+  const heroX = W * 0.62;
+  const heroY = H * 0.56;
+  const heroR = H * 0.18;
+  drawShockwave(ctx, W * 0.82, H * 0.5, heroR * 2.2, PAL.magenta, 4);
+  drawBomber(ctx, W * 0.88, H * 0.5, H * 0.13, { rotation: -0.25 });
+  drawDashTrail(ctx, heroX, heroY, heroR, 45, W * 0.28);
+  drawPlayerBall(ctx, heroX, heroY, heroR);
+
+  // Left-side type block — LARGE logo that dominates
+  drawLogoLeft(ctx, W * 0.04, H * 0.36, Math.round(H * 0.28), 'BOUNCE');
+  drawLogoLeft(ctx, W * 0.04, H * 0.68, Math.round(H * 0.28), 'BLITZ');
+  drawSubtitle(ctx, 'LAST COURIER', W * 0.04, H * 0.90, Math.round(H * 0.05), { align: 'left' });
+}
+
+/** Left-aligned version of the logo for the OG layout. */
+function drawLogoLeft(ctx, x, y, fontSize, text) {
+  // measure text width using a tmp measurement and pass the center
+  ctx.save();
+  ctx.font = `900 ${fontSize}px 'Impact','Arial Black',system-ui,sans-serif`;
+  const w = ctx.measureText(text).width;
+  ctx.restore();
+  drawLogo(ctx, text, x + w / 2, y, fontSize, { align: 'center' });
+}
+
+/** Small top-left chip. */
+function drawCornerBadge(ctx, x, y, text, fontSize) {
+  ctx.save();
+  ctx.font = `800 ${fontSize}px 'Arial Black','Impact',system-ui,sans-serif`;
+  ctx.textBaseline = 'middle';
+  ctx.textAlign = 'left';
+  ctx.letterSpacing = '2px';
+  const w = ctx.measureText(text).width + fontSize * 1.6;
+  const h = fontSize * 1.9;
+  ctx.fillStyle = 'rgba(0, 255, 255, 0.92)';
+  ctx.shadowColor = PAL.player;
+  ctx.shadowBlur = 18;
+  roundRect(ctx, x, y, w, h, h * 0.35);
+  ctx.fill();
+  ctx.shadowBlur = 0;
+  ctx.fillStyle = '#001a1f';
+  ctx.fillText(text, x + fontSize * 0.8, y + h / 2);
+  ctx.restore();
+}
+
+// ---------- RENDER + WIRE-UP ------------------------------------------------
+
+function render() {
+  const cg = document.getElementById('cgCover');
+  renderCrazyGamesTile(cg.getContext('2d'), cg.width, cg.height);
+
+  const og = document.getElementById('ogCover');
+  renderOGBanner(og.getContext('2d'), og.width, og.height);
+}
+
+/** Download a canvas as PNG, optionally rescaled to a new width/height. */
+function downloadCanvas(canvas, filename, scale = 1) {
+  let outCanvas = canvas;
+  if (scale !== 1) {
+    outCanvas = document.createElement('canvas');
+    outCanvas.width = Math.round(canvas.width * scale);
+    outCanvas.height = Math.round(canvas.height * scale);
+    const octx = outCanvas.getContext('2d');
+    octx.imageSmoothingQuality = 'high';
+    octx.drawImage(canvas, 0, 0, outCanvas.width, outCanvas.height);
+  }
+  outCanvas.toBlob((blob) => {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 1000);
+  }, 'image/png');
+}
+
+document.addEventListener('click', (e) => {
+  const btn = e.target.closest('button[data-target]');
+  if (!btn) return;
+  const target = document.getElementById(btn.dataset.target);
+  const scale = btn.dataset.scale ? parseFloat(btn.dataset.scale) : 1;
+  downloadCanvas(target, btn.dataset.filename, scale);
+});
+
+// Force fonts to load, then render once. (Impact falls back to Arial Black on
+// systems without it; both read as a bold condensed display face.)
+if (document.fonts && document.fonts.ready) {
+  document.fonts.ready.then(render);
+} else {
+  render();
+}
+</script>
+</body>
+</html>
