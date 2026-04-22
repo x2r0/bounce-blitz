@@ -325,7 +325,17 @@ function settingsAdjust(delta) {
   }
 }
 
+// Dedupe window for mute toggles. On iOS WKWebView (notably the CrazyGames
+// mobile app) preventDefault() on touchstart doesn't always suppress the
+// synthetic mousedown, so a single tap can fire settingsToggleMute twice —
+// the user sees the button briefly flip state and then revert. 300ms is
+// enough to swallow the synth duplicate without blocking rapid intentional
+// toggles (which in practice don't happen for mute).
+let _lastMuteToggleAt = 0;
 function settingsToggleMute() {
+  const now = (typeof performance !== 'undefined' ? performance.now() : Date.now());
+  if (now - _lastMuteToggleAt < 300) return;
+  _lastMuteToggleAt = now;
   toggleMute();
   saveSettings({ musicVolume: getMusicVolume(), sfxVolume: getSfxVolume(), muted: isMuted() });
 }
