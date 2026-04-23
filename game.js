@@ -4,7 +4,7 @@ import {
   W, H, STATE, FONT, MAX_POWER_SLOTS, CLARITY, SURGE_ACTIVE_SPEED_THRESHOLD, ENEMY_COLORS,
   CHARGE_TAP_THRESHOLD, CHARGE_MAX_DURATION, CHARGE_SPEED_MIN, CHARGE_SPEED_MAX,
   CHARGE_GRACE_MIN, CHARGE_GRACE_MAX, CHARGE_RECOVERY_MIN, CHARGE_RECOVERY_MAX,
-  IDLE_FRICTION
+  IDLE_FRICTION, GAME_VERSION
 } from './config.js';
 import { rand, dist, lerp, formatScore, formatTime } from './utils.js';
 import { events } from './eventbus.js';
@@ -2560,6 +2560,16 @@ function drawTitleScreen() {
   ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
   ctx.fillStyle = '#95cfd5';
   ctx.fillText('Current loadout: ' + loadout.name, W / 2, panelY + panelH - 26 + 22);
+  ctx.restore();
+
+  // Build version — small, muted, bottom-center so players/testers can read
+  // which build they're on without it competing with the title composition.
+  ctx.save();
+  ctx.font = '11px ' + FONT;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'alphabetic';
+  ctx.fillStyle = 'rgba(120, 150, 180, 0.55)';
+  ctx.fillText('v' + GAME_VERSION, W / 2, H - 10);
   ctx.restore();
 
   ctx.restore();
