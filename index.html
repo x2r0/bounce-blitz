@@ -65,7 +65,19 @@ canvas {
   -webkit-touch-callout: none;
   -webkit-user-select: none;
   user-select: none;
-  filter: drop-shadow(0 18px 48px rgba(0, 0, 0, 0.32));
+  /*
+   * The previous `filter: drop-shadow(...)` forced the browser to render
+   * the canvas into an offscreen texture before compositing — on mobile
+   * that texture was frequently at a lower resolution than the canvas
+   * backbuffer, which made the game look noticeably grainier than the
+   * DOM-based HUD overlays sitting alongside it. `box-shadow` gives the
+   * same ambient drop shadow without the filter-pass texture round-trip,
+   * so the canvas composites directly to the display at native DPR.
+   */
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.32);
+  /* Nudge the browser to keep the canvas on its own GPU layer so
+     shadow compositing doesn't cost a paint invalidation. */
+  will-change: transform;
 }
 </style>
 </head>
