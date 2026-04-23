@@ -61,3 +61,76 @@ export async function submitCrazyGamesLeaderboardScore(sdk, score, config = CRAZ
   await Promise.resolve(sdk.user.submitScore({ encryptedScore }));
   return true;
 }
+
+/**
+ * Fetch the top-N CrazyGames leaderboard entries and the current user's rank.
+ *
+ * The SDK's method surface for reading leaderboards has shifted a few times;
+ * this helper feature-detects the most likely methods in priority order and
+ * falls back gracefully. Never throws — returns an empty shape if the SDK is
+ * unavailable or the call fails, so the UI can render a clean "unavailable"
+ * state instead of crashing.
+ *
+ * Shape: { scores: [{ username, score, rank?, isSelf? }], userRank: number|null,
+ *          userScore: number|null, username: string|null, error: string|null }
+ */
+export async function fetchCrazyGamesLeaderboard(sdk, opts = {}) {
+  const out = { scores: [], userRank: null, userScore: null, username: null, error: null };
+  if (!sdk?.user) { out.error = 'sdk-unavailable'; return out; }
+
+  const top = Math.max(3, Math.min(50, opts.top ?? 10));
+  let username = null;
+  try {
+    if (typeof sdk.user.getUser === 'function') {
+      const user = await Promise.resolve(sdk.user.getUser());
+      username = user?.username ?? user?.name ?? null;
+    }
+  } catch { /* ignore */ }
+  out.username = username;
+
+  // Top scores — try the documented SDK v3 signature, then a few fallbacks.
+  try {
+    let raw = null;
+    if (typeof sdk.user.getUserScores === 'function') {
+      raw = await Promise.resolve(sdk.user.getUserScores({ top }));
+    } else if (typeof sdk.user.getScores === 'function') {
+      raw = await Promise.resolve(sdk.user.getScores({ top }));
+    } else if (typeof sdk.leaderboards?.getLeaderboard === 'function') {
+      raw = await Promise.resolve(sdk.leaderboards.getLeaderboard({ top }));
+    }
+    if (raw) {
+      // Normalize across the different response shapes the SDK has shipped.
+      const list = Array.isArray(raw) ? raw
+        : Array.isArray(raw.scores) ? raw.scores
+        : Array.isArray(raw.entries) ? raw.entries
+        : Array.isArray(raw.leaderboard) ? raw.leaderboard
+        : [];
+      out.scores = list.slice(0, top).map((entry, i) => ({
+        rank: entry.rank ?? entry.position ?? (i + 1),
+        username: entry.username ?? entry.name ?? entry.user ?? 'Anonymous',
+        score: Number(entry.score ?? entry.value ?? 0) || 0,
+        isSelf: (username && (entry.username === username || entry.name === username)) || !!entry.self,
+      }));
+    }
+  } catch (e) {
+    out.error = 'scores-fetch-failed';
+    if (typeof console !== 'undefined') console.warn('[CrazyGames] leaderboard fetch failed:', e);
+  }
+
+  // User's own rank — best-effort, don't error if unavailable.
+  try {
+    if (typeof sdk.user.getUserRank === 'function') {
+      const r = await Promise.resolve(sdk.user.getUserRank({}));
+      out.userRank = Number(r?.rank ?? r) || null;
+      if (r?.score != null) out.userScore = Number(r.score) || null;
+    }
+  } catch { /* ignore */ }
+
+  // If the user's own entry is in the list but not flagged, tag it now.
+  if (username && !out.scores.some(s => s.isSelf)) {
+    const match = out.scores.find(s => s.username === username);
+    if (match) match.isSelf = true;
+  }
+
+  return out;
+}

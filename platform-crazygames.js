@@ -16,6 +16,7 @@ import { installCrazyGamesDataStorage, migrateLocalStorageToCrazyGamesData } fro
 import {
   CRAZYGAMES_LEADERBOARD_CONFIG,
   submitCrazyGamesLeaderboardScore,
+  fetchCrazyGamesLeaderboard,
 } from './systems/crazygames-leaderboard.js';
 
 /** Resolved CrazyGames SDK handle (set during init). */
@@ -133,6 +134,13 @@ const crazyGamesAdapter = {
       console.warn('[platform] CrazyGames leaderboard submit failed:', e);
       return false;
     }
+  },
+
+  async fetchLeaderboard(opts = {}) {
+    if (!cg) {
+      return { scores: [], userRank: null, userScore: null, username: null, error: 'sdk-unavailable' };
+    }
+    return fetchCrazyGamesLeaderboard(cg, opts);
   },
 
   event(name, data) {

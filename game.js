@@ -40,7 +40,7 @@ import { updateCombatTexts, drawCombatTexts } from './systems/combat-text.js';
 import { POWER_DEFS, EVOLUTION_RECIPES, BOSS_SIGIL_DEFS, generateOffering, checkEvolutionAvailable, createEvolutionCard, applyPowerPick, applyWaveStartPowers, resetWaveCounters } from './systems/powers.js';
 import { getPowerSelectConfig } from './systems/power-select-config.js';
 import { getRewardContextForWave } from './systems/reward-context.js';
-import { FX_AFTERIMAGE_LIMIT, FX_AMBIENT_PARTICLE_SCALE, FX_AMBIENT_SHAPE_COUNT, pushCapped } from './systems/runtime-flags.js';
+import { FX_AFTERIMAGE_LIMIT, FX_AMBIENT_PARTICLE_SCALE, FX_AMBIENT_SHAPE_COUNT, IS_CRAZYGAMES, pushCapped } from './systems/runtime-flags.js';
 import {
   TRANSITION_REWARD_COPY,
   EPILOGUE_REVEAL_LINES,
@@ -2929,6 +2929,82 @@ function drawRunSummary() {
     ctx.restore();
   };
 
+  // Render a compact CrazyGames leaderboard panel inside the given bounds.
+  // Shows loading / unavailable / scores states; highlights the player's row.
+  const drawLeaderboardPanel = (px, py, pw, ph) => {
+    drawPanel(px, py, pw, ph, '#ffd166');
+    ctx.save();
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.font = 'bold 13px ' + FONT;
+    ctx.fillStyle = '#ffd166';
+    ctx.fillText('GLOBAL LEADERBOARD', px + pw / 2, py + 18);
+
+    const board = G.runSummaryLeaderboard;
+    // Loading state
+    if (!board || board.loading) {
+      ctx.font = '14px ' + FONT;
+      ctx.fillStyle = '#8f9fc5';
+      const dots = '.'.repeat(1 + Math.floor((Date.now() / 400) % 3));
+      ctx.fillText('Loading top scores' + dots, px + pw / 2, py + ph / 2 + 4);
+      ctx.restore();
+      return;
+    }
+    // Unavailable state
+    if (!board.data || !board.data.scores || board.data.scores.length === 0) {
+      ctx.font = '13px ' + FONT;
+      ctx.fillStyle = '#7f8a9f';
+      ctx.fillText(
+        board.error === 'sdk-unavailable' ? 'Leaderboard unavailable on this platform'
+          : board.error ? 'Leaderboard temporarily unavailable'
+          : 'Be the first to set a score!',
+        px + pw / 2, py + ph / 2 + 4,
+      );
+      ctx.restore();
+      return;
+    }
+
+    // Populated — show up to top N rows in 3 columns (rank | name | score)
+    const rows = board.data.scores.slice(0, Math.max(3, Math.floor((ph - 34) / 18)));
+    const rowH = 18;
+    const innerPad = 14;
+    const col1X = px + innerPad + 4;                // rank, left
+    const col2X = px + innerPad + 46;               // name, left
+    const col3X = px + pw - innerPad - 4;           // score, right
+    ctx.font = '13px ' + FONT;
+    for (let i = 0; i < rows.length; i++) {
+      const r = rows[i];
+      const ry = py + 34 + i * rowH;
+      const highlight = !!r.isSelf;
+      if (highlight) {
+        ctx.fillStyle = 'rgba(255,209,102,0.12)';
+        ctx.fillRect(px + 6, ry - rowH / 2 + 1, pw - 12, rowH - 2);
+      }
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'middle';
+      ctx.fillStyle = highlight ? '#ffe39a' : (r.rank <= 3 ? '#ffd166' : '#b9c5d6');
+      ctx.fillText('#' + r.rank, col1X, ry);
+      // Truncate long usernames
+      const nameMax = Math.max(6, Math.floor((col3X - col2X - 60) / 7));
+      const name = r.username.length > nameMax ? r.username.slice(0, nameMax - 1) + '…' : r.username;
+      ctx.fillStyle = highlight ? '#ffffff' : '#d6def3';
+      ctx.fillText(name, col2X, ry);
+      ctx.textAlign = 'right';
+      ctx.fillStyle = highlight ? '#ffe39a' : '#58d6ff';
+      ctx.fillText(formatScore(r.score), col3X, ry);
+    }
+
+    // Player rank footer if not already shown in the list
+    if (board.data.userRank && !rows.some(r => r.isSelf)) {
+      const fy = py + ph - 16;
+      ctx.textAlign = 'center';
+      ctx.fillStyle = '#9da6b7';
+      ctx.font = '12px ' + FONT;
+      ctx.fillText('Your rank: #' + board.data.userRank, px + pw / 2, fy);
+    }
+    ctx.restore();
+  };
+
   if (isTouchDev) {
     drawGlowText(s.isVictory ? 'VICTORY' : 'RUN COMPLETE', W / 2, 44, 'bold 30px ' + FONT, '#ffffff', s.isVictory ? '#ffdd44' : '#aaaaff', 10);
 
@@ -3002,6 +3078,16 @@ function drawRunSummary() {
     ctx.font = '16px ' + FONT;
     ctx.fillStyle = '#9da6b7';
     ctx.fillText('Total Shards: ' + G.meta.shards, W / 2, y + (s.endlessUnlocked ? 72 : 54));
+    y += totalPanelH + 12;
+
+    // Global leaderboard panel (CrazyGames only). Sized to fit the remaining
+    // space above the "tap to continue" prompt (y ≈ H-20).
+    if (IS_CRAZYGAMES) {
+      const lbPanelH = Math.min(130, Math.max(70, H - y - 34));
+      if (lbPanelH >= 70) {
+        drawLeaderboardPanel(panelX, y, panelW, lbPanelH);
+      }
+    }
 
     for (const p of G.summaryParticles) {
       ctx.save();
@@ -3170,6 +3256,17 @@ function drawRunSummary() {
     ctx.fillStyle = '#ffdd44';
     ctx.fillText('New upgrades available!', W / 2, y);
     ctx.restore();
+    y += 14;
+  }
+
+  // Global leaderboard (CrazyGames only) — shares the column width with the
+  // rest of the summary panels so layout stays coherent.
+  if (IS_CRAZYGAMES) {
+    y += 6;
+    const lbPanelH = Math.min(130, Math.max(70, H - y - 30));
+    if (lbPanelH >= 70) {
+      drawLeaderboardPanel(W * 0.22, y, W * 0.56, lbPanelH);
+    }
   }
 
   // --- Victory particle burst ---
@@ -5884,6 +5981,22 @@ export function transitionToRunSummary() {
   G.runSummaryScoreCounter = 0;
   G.runSummaryReady = false;
   G.summaryParticles = [];
+
+  // Kick off a leaderboard fetch for the summary panel. Resolves to an
+  // empty shape on non-CrazyGames platforms so the draw code can short-
+  // circuit without crashing. Runs in parallel with the animated counters.
+  G.runSummaryLeaderboard = { loading: IS_CRAZYGAMES, data: null, error: null };
+  if (IS_CRAZYGAMES) {
+    void platformSDK.fetchLeaderboard({ top: 10 }).then((data) => {
+      G.runSummaryLeaderboard.loading = false;
+      G.runSummaryLeaderboard.data = data;
+      if (data?.error) G.runSummaryLeaderboard.error = data.error;
+    }).catch((err) => {
+      G.runSummaryLeaderboard.loading = false;
+      G.runSummaryLeaderboard.error = 'fetch-failed';
+      console.warn('[CrazyGames] leaderboard fetch errored:', err);
+    });
+  }
 
   // Spawn victory particle burst for boss-defeat runs
   if (G.runSummary.isVictory) {
