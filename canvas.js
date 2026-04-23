@@ -15,9 +15,20 @@ function getDeviceCanvasScale() {
   if (typeof window === 'undefined') return 1;
   const dpr = Math.max(1, window.devicePixelRatio || 1);
   const isTouchDevice = ('ontouchstart' in window) || (navigator.maxTouchPoints || 0) > 0;
+  // DPR caps: the previous caps (2 / 2.5 / 2.25) were set defensively when
+  // the wave-8 freeze was diagnosed, before the FX-array + blur caps
+  // landed in runtime-flags.js. Those caps are now the primary mitigation,
+  // so we can render the canvas closer to device-native resolution — which
+  // matches the DOM-based mobile HUD overlays and kills the relative
+  // graininess users noticed between the game and the HUD chrome.
+  //
+  //   - Non-touch:        2 → 3   (full DPR for HiDPI desktops)
+  //   - Touch, non-embed: 2.5 → 3 (full DPR on regular mobile Safari/Chrome)
+  //   - Touch, embed:     2.25 → 2.5 (modest bump; keep perf headroom for
+  //                                   the CrazyGames WebView)
   const cap = isTouchDevice
-    ? (REDUCED_FX_EMBED ? 2.25 : REDUCED_FX ? 2.5 : 3)
-    : 2;
+    ? (REDUCED_FX_EMBED ? 2.5 : 3)
+    : 3;
   return Math.max(1, Math.min(dpr, cap));
 }
 
@@ -38,6 +49,10 @@ function syncCanvasResolution() {
     ctx.setTransform(canvasScale, 0, 0, canvasScale, 0, 0);
   }
   ctx.imageSmoothingEnabled = true;
+  // Default imageSmoothingQuality is 'low' — fine for fast upscaling but
+  // visibly soft when the backbuffer is downscaled to CSS pixels. 'high'
+  // gives the grid canvas and any offscreen pre-renders a cleaner resample.
+  if ('imageSmoothingQuality' in ctx) ctx.imageSmoothingQuality = 'high';
 }
 
 export function getCanvasScale() {

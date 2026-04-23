@@ -3,7 +3,7 @@
 // --- Game version ---
 // Keep in sync with package.json's "version" field. Shown on the title screen
 // so players (and testers) can tell which build they're running.
-export const GAME_VERSION = '1.0.18';
+export const GAME_VERSION = '1.0.19';
 
 // --- Canvas dimensions ---
 export const W = 800;
