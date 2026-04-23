@@ -43,6 +43,20 @@ const noopAdapter = {
   },
 
   /**
+   * Fetch the top-N leaderboard entries (and the current user's rank, when
+   * available) for display on the run summary. Platforms without a leaderboard
+   * return an empty shape that the UI treats as "unavailable".
+   *
+   * Shape: { scores: [{rank, username, score, isSelf}], userRank: number|null,
+   *          userScore: number|null, username: string|null, error: string|null }
+   * @param {Object} _opts
+   * @returns {Promise<Object>}
+   */
+  fetchLeaderboard(/** @type {Object} */ _opts) {
+    return Promise.resolve({ scores: [], userRank: null, userScore: null, username: null, error: 'unsupported' });
+  },
+
+  /**
    * Report an analytics / game event.
    * @param {string} name  — event name (e.g. 'score', 'waveReached', 'death')
    * @param {Object} data  — event payload
@@ -70,6 +84,7 @@ const platformSDK = {
   gameplayStop()            { adapter.gameplayStop(); },
   adBreak()                 { return adapter.adBreak(); },
   submitLeaderboardScore(score, meta = {}) { return adapter.submitLeaderboardScore(score, meta); },
+  fetchLeaderboard(opts = {}) { return adapter.fetchLeaderboard(opts); },
   event(name, data)         { adapter.event(name, data); },
 };
 
