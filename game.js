@@ -2515,7 +2515,7 @@ function drawTitleScreen() {
   drawMenuButton(playRect, 'Play', {
     hovered: G._titleHoverAction === 'play',
     accent: '#00eaff',
-    sublabel: isTouchDev ? 'Tap to start' : 'Click or press any key',
+    sublabel: isTouchDev ? 'Tap to start' : 'Click or press any key to start',
     prominent: true,
   });
 
@@ -2526,7 +2526,7 @@ function drawTitleScreen() {
     drawMenuButton(continueRect, 'Continue Run', {
       hovered: G._titleHoverAction === 'continue',
       accent: '#00ffcc',
-      sublabel: isTouchDev ? 'Tap to continue' : 'Hotkey C',
+      sublabel: isTouchDev ? 'Tap to continue' : 'Press C to continue',
     });
     lowerButtonsY += isTouchDev ? 62 : 54;
   } else {
@@ -2549,7 +2549,7 @@ function drawTitleScreen() {
     drawMenuButton(rect, btn.label, {
       hovered: G._titleHoverAction === btn.id,
       accent: btn.accent,
-      sublabel: isTouchDev ? '' : 'Hotkey ' + btn.key,
+      sublabel: isTouchDev ? '' : 'Press ' + btn.key,
     });
   }
 
@@ -2588,14 +2588,16 @@ function drawSettingsScreen() {
   // Title
   drawGlowText('SETTINGS', W / 2, 80, 'bold 36px ' + FONT, '#ffffff', '#00ffff', 10);
 
-  // Layout
-  const sliderW = isTouchDev ? 380 : 300;
-  const sliderH = isTouchDev ? 14 : 12;
-  const knobR = isTouchDev ? 12 : 10;
+  // Layout. Slider dimensions used to be tight on desktop (300×12 track,
+  // 10px knob) — fine-for-mouse but noticeably more fiddly than the touch
+  // version. Bump desktop to close the gap without fully matching mobile.
+  const sliderW = isTouchDev ? 380 : 360;
+  const sliderH = isTouchDev ? 14 : 14;
+  const knobR = isTouchDev ? 12 : 12;
   const labelX = W / 2 - sliderW / 2;
   const sliderX = labelX;
-  const startY = isTouchDev ? 160 : 180;
-  const rowH = isTouchDev ? 82 : 90;
+  const startY = isTouchDev ? 160 : 170;
+  const rowH = isTouchDev ? 82 : 84;
   const cursor = G._settingsCursor;
 
   const musicVol = getMusicVolume();
@@ -2686,7 +2688,7 @@ function drawSettingsScreen() {
   // --- Mute Toggle ---
   const muteY = startY + rowH * 2 + 10;
   const muteSelected = cursor === 2;
-  const muteBtnW = isTouchDev ? 260 : 200, muteBtnH = isTouchDev ? 46 : 40;
+  const muteBtnW = isTouchDev ? 260 : 240, muteBtnH = isTouchDev ? 46 : 44;
   const muteBtnX = W / 2 - muteBtnW / 2;
   const muteHover = muteSelected || G._settingsHoverMute;
   ctx.save();
@@ -2717,7 +2719,7 @@ function drawSettingsScreen() {
 
   // --- Back Button ---
   const backY = muteY + muteBtnH + (isTouchDev ? 28 : 40);
-  const backBtnW = isTouchDev ? 220 : 160, backBtnH = isTouchDev ? 46 : 40;
+  const backBtnW = isTouchDev ? 220 : 200, backBtnH = isTouchDev ? 46 : 44;
   const backBtnX = W / 2 - backBtnW / 2;
   const backHover = G._settingsHoverBack;
   ctx.save();
@@ -5385,7 +5387,7 @@ function draw() {
       ctx.font = '16px ' + FONT;
       ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
       ctx.fillStyle = '#888888';
-      ctx.fillText(isTouchUILayout() ? 'Tap for summary' : 'Click / Tap / Any Key for Summary', W / 2, H * 0.35 + 180);
+      ctx.fillText(isTouchUILayout() ? 'Tap for summary' : 'Click or press any key for summary', W / 2, H * 0.35 + 180);
       ctx.restore();
     }
 
@@ -5654,7 +5656,7 @@ function draw() {
       drawMenuButton(rect, btn.label, {
         hovered: G._pauseHoverAction === btn.id,
         accent: btn.accent,
-        sublabel: isTouchDev ? '' : 'Hotkey ' + btn.key,
+        sublabel: isTouchDev ? '' : 'Press ' + btn.key,
         danger: !!btn.danger,
       });
     }
